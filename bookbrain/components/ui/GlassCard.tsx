@@ -1,29 +1,72 @@
-import { View, type ViewProps } from "react-native";
-import { BlurView } from "expo-blur";
-import { twMerge } from "tailwind-merge";
+import type { ReactNode } from "react";
+import { View, Pressable, StyleSheet, type ViewStyle, type StyleProp } from "react-native";
+import { t } from "@/theme";
 
-interface GlassCardProps extends ViewProps {
-  intensity?: number;
-  className?: string;
+type Variant = "default" | "elevated" | "subtle";
+
+interface GlassCardProps {
+  children: ReactNode;
+  variant?: Variant;
+  padding?: number;
+  radius?: number;
+  style?: StyleProp<ViewStyle>;
+  onPress?: () => void;
+  onLongPress?: () => void;
+  delayLongPress?: number;
 }
+
+const VARIANTS: Record<Variant, ViewStyle> = {
+  default: {
+    backgroundColor: t.color.glass.bg,
+    borderWidth: 1,
+    borderColor: t.color.glass.border,
+    ...t.shadow.soft,
+  },
+  elevated: {
+    backgroundColor: t.color.glass.bgHover,
+    borderWidth: 1,
+    borderColor: t.color.glass.borderStrong,
+    ...t.shadow.medium,
+  },
+  subtle: {
+    backgroundColor: "rgba(255,255,255,0.02)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.04)",
+  },
+};
 
 export function GlassCard({
-  intensity = 40,
-  className,
   children,
-  ...props
+  variant = "default",
+  padding = t.space._4,
+  radius = t.radius["3xl"],
+  style,
+  onPress,
+  onLongPress,
+  delayLongPress = 300,
 }: GlassCardProps) {
-  return (
-    <View
-      className={twMerge(
-        "rounded-2xl overflow-hidden border border-white/10",
-        className
-      )}
-      {...props}
-    >
-      <BlurView intensity={intensity} tint="dark" className="flex-1 p-4">
+  const cardStyle: ViewStyle[] = [
+    VARIANTS[variant],
+    { padding, borderRadius: radius },
+    style as ViewStyle,
+  ];
+
+  if (onPress || onLongPress) {
+    return (
+      <Pressable
+        style={({ pressed }) => [...cardStyle, pressed && styles.pressed]}
+        onPress={onPress}
+        onLongPress={onLongPress}
+        delayLongPress={delayLongPress}
+      >
         {children}
-      </BlurView>
-    </View>
-  );
+      </Pressable>
+    );
+  }
+
+  return <View style={cardStyle}>{children}</View>;
 }
+
+const styles = StyleSheet.create({
+  pressed: t.press.scale,
+});

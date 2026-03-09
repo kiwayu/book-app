@@ -1,6 +1,6 @@
 import { getAll, getOne } from "@/db/database";
 
-/* ── chart-friendly return types ─────────────────── */
+/* ── Chart-friendly return types ─────────────────── */
 
 export interface LabeledValue {
   label: string;
@@ -17,7 +17,24 @@ export interface StreakResult {
   longest: number;
 }
 
-/* ── queries ─────────────────────────────────────── */
+export interface ReadingSpeedResult {
+  book_title: string;
+  pages_per_hour: number;
+  total_pages: number;
+  total_hours: number;
+}
+
+export interface GenreStat {
+  genre: string;
+  count: number;
+}
+
+export interface MonthlyGoalProgress {
+  label: string;
+  finished: number;
+}
+
+/* ── Queries ─────────────────────────────────────── */
 
 export async function booksPerYear(): Promise<LabeledValue[]> {
   return getAll<LabeledValue>(
@@ -130,4 +147,116 @@ export async function readingTimePerBook(): Promise<BookTime[]> {
      HAVING hours > 0
      ORDER BY hours DESC`
   );
+}
+
+/* ── Reading speed (pages per hour, per book) ────── */
+
+export async function readingSpeed(): Promise<ReadingSpeedResult[]> {
+  return getAll<ReadingSpeedResult>(
+    `SELECT
+       b.title AS book_title,
+       SUM(rs.pages_read) AS total_pages,
+       ROUND(SUM((JULIANDAY(rs.end_time) - JULIANDAY(rs.start_time)) * 24), 2) AS total_hours,
+       ROUND(
+         CAST(SUM(rs.pages_read) AS REAL) /
+         NULLIF(SUM((JULIANDAY(rs.end_time) - JULIANDAY(rs.start_time)) * 24), 0),
+         1
+       ) AS pages_per_hour
+     FROM reading_sessions rs
+     JOIN books b ON b.id = rs.book_id
+     WHERE rs.end_time IS NOT NULL AND rs.pages_read > 0
+     GROUP BY rs.book_id
+     HAVING total_hours > 0
+     ORDER BY pages_per_hour DESC`
+  );
+}
+
+export async function averageReadingSpeed(): Promise<number> {
+  const row = await getOne<{ speed: number }>(
+    `SELECT ROUND(
+       CAST(SUM(rs.pages_read) AS REAL) /
+       NULLIF(SUM((JULIANDAY(rs.end_time) - JULIANDAY(rs.start_time)) * 24), 0),
+       1
+     ) AS speed
+     FROM reading_sessions rs
+     WHERE rs.end_time IS NOT NULL AND rs.pages_read > 0`
+  );
+  return row?.speed ?? 0;
+}
+
+/* ── Genre / category analytics ──────────────────── */
+
+export async function booksPerGenre(): Promise<GenreStat[]> {
+  const rows = await getAll<{ genres: string }>(
+    `SELECT b.genres
+     FROM books b
+     JOIN library_entries le ON le.book_id = b.id
+     WHERE le.status = 'finished' AND b.genres IS NOT NULL`
+  );
+
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    for (const raw of row.genres.split(",")) {
+      const genre = raw.trim();
+      if (genre) counts.set(genre, (counts.get(genre) ?? 0) + 1);
+    }
+  }
+
+  return Array.from(counts.entries())
+    .map(([genre, count]) => ({ genre, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+/* ── Books finished per month (for goal tracking) ── */
+
+export async function booksPerMonth(): Promise<MonthlyGoalProgress[]> {
+  return getAll<MonthlyGoalProgress>(
+    `SELECT SUBSTR(finished_at, 1, 7) AS label,
+            COUNT(*) AS finished
+     FROM library_entries
+     WHERE status = 'finished' AND finished_at IS NOT NULL
+     GROUP BY label
+     ORDER BY label`
+  );
+}
+
+/* ── Average days to finish a book ───────────────── */
+
+export async function averageDaysToFinish(): Promise<number> {
+  const row = await getOne<{ avg_days: number }>(
+    `SELECT ROUND(AVG(
+       JULIANDAY(finished_at) - JULIANDAY(started_at)
+     ), 1) AS avg_days
+     FROM library_entries
+     WHERE status = 'finished'
+       AND started_at IS NOT NULL
+       AND finished_at IS NOT NULL`
+  );
+  return row?.avg_days ?? 0;
+}
+
+/* ── Total stats snapshot ────────────────────────── */
+
+export interface TotalStats {
+  total_books: number;
+  total_pages: number;
+  total_hours: number;
+  avg_rating: number;
+}
+
+export async function totalStats(): Promise<TotalStats> {
+  const row = await getOne<TotalStats>(
+    `SELECT
+       COUNT(*)                           AS total_books,
+       COALESCE(SUM(b.page_count), 0)    AS total_pages,
+       COALESCE(ROUND(SUM(
+         (JULIANDAY(rs.end_time) - JULIANDAY(rs.start_time)) * 24
+       ), 1), 0)                          AS total_hours,
+       COALESCE(ROUND(AVG(le.rating), 2), 0) AS avg_rating
+     FROM library_entries le
+     JOIN books b ON b.id = le.book_id
+     LEFT JOIN reading_sessions rs ON rs.book_id = b.id AND rs.end_time IS NOT NULL
+     WHERE le.status = 'finished'`
+  );
+  return row ?? { total_books: 0, total_pages: 0, total_hours: 0, avg_rating: 0 };
 }

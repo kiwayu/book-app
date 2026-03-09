@@ -1,276 +1,219 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   View,
   Text,
   ScrollView,
-  FlatList,
   Pressable,
   ActivityIndicator,
   RefreshControl,
-  StyleSheet,
   Modal,
   TextInput,
   Alert,
+  StyleSheet,
+  type LayoutChangeEvent,
 } from "react-native";
-import { Image } from "expo-image";
 import { useRouter } from "expo-router";
+import Swipeable from "react-native-gesture-handler/Swipeable";
 import {
   useLibraryStore,
   type BookWithEntry,
   type BookStatus,
   type FolderWithBooks,
 } from "@/store/libraryStore";
-import { getOne } from "@/db/database";
+import { t } from "@/theme";
+import { type BookCardProgress } from "@/components/ui/BookCard";
+import { CoverShelf, type CoverShelfBook } from "@/components/ui/CoverShelf";
+import { CompactBookRow } from "@/components/ui/CompactBookRow";
+import { BookDetailSheet } from "@/components/ui/BookDetailSheet";
+import { SegmentedControl, type Segment } from "@/components/ui/SegmentedControl";
+import { AlphabetIndex } from "@/components/ui/AlphabetIndex";
+import { SearchBar } from "@/components/ui/SearchBar";
+import { SectionHeader } from "@/components/ui/SectionHeader";
+import {
+  FilterSheet,
+  type LibraryFilters,
+  EMPTY_FILTERS,
+  countActiveFilters,
+} from "@/components/ui/FilterSheet";
+import { getAll } from "@/db/database";
+import { loadPrefs, savePrefs, type LibraryPrefs } from "@/services/preferences";
 
-/* ── Types ──────────────────────────────────────────── */
+/* ── Types & constants ─────────────────────────────── */
 
-interface ProgressRow {
-  current_page: number;
-  percentage: number;
-}
+interface ProgressRow { book_id: number; current_page: number; percentage: number; }
+type SortKey = "title" | "author" | "page_count" | "published_year" | "progress" | "rating" | "date_added";
+type SortDir = "asc" | "desc";
+type TabKey = "all" | BookStatus;
 
-const SECTIONS: { key: BookStatus; title: string; emoji: string; emptyText: string; showProgress: boolean }[] = [
-  { key: "reading", title: "Currently Reading", emoji: "📖", emptyText: "Nothing in progress", showProgress: true },
-  { key: "want_to_read", title: "Want to Read", emoji: "📋", emptyText: "Add books you want to read", showProgress: false },
-  { key: "finished", title: "Finished", emoji: "✅", emptyText: "No finished books yet", showProgress: false },
-  { key: "dnf", title: "Did Not Finish", emoji: "🚫", emptyText: "No abandoned books", showProgress: true },
+const SORT_OPTIONS: { key: SortKey; label: string; shortLabel: string }[] = [
+  { key: "date_added", label: "Date Added", shortLabel: "Added" },
+  { key: "title", label: "Title", shortLabel: "Title" },
+  { key: "author", label: "Author", shortLabel: "Author" },
+  { key: "page_count", label: "Page Count", shortLabel: "Pages" },
+  { key: "published_year", label: "Year Published", shortLabel: "Year" },
+  { key: "progress", label: "Progress", shortLabel: "Progress" },
+  { key: "rating", label: "Rating", shortLabel: "Rating" },
 ];
 
-const FOLDER_COLORS = ["#818cf8", "#f472b6", "#34d399", "#fbbf24", "#fb923c", "#a78bfa", "#38bdf8", "#f87171"];
+const FOLDER_COLORS = [
+  "#818cf8", "#f472b6", "#34d399", "#fbbf24",
+  "#fb923c", "#a78bfa", "#38bdf8", "#f87171",
+];
 
-/* ── Small components ───────────────────────────────── */
+interface RecentBook {
+  id: number; title: string; authors: string | null;
+  cover_url: string | null; page_count: number | null;
+  last_activity: string; status: string;
+}
 
-function Stars({ rating }: { rating: number }) {
-  const full = Math.round(rating);
+/* ── Helpers ───────────────────────────────────────── */
+
+function firstLetter(title: string): string {
+  const ch = title.charAt(0).toUpperCase();
+  return /[A-Z]/.test(ch) ? ch : "#";
+}
+
+interface LetterGroup { letter: string; books: BookWithEntry[]; }
+
+function groupByLetter(list: BookWithEntry[]): LetterGroup[] {
+  const sorted = [...list].sort((a, b) => a.title.localeCompare(b.title));
+  const map = new Map<string, BookWithEntry[]>();
+  for (const b of sorted) {
+    const l = firstLetter(b.title);
+    if (!map.has(l)) map.set(l, []);
+    map.get(l)!.push(b);
+  }
+  return Array.from(map.entries())
+    .sort(([a], [b]) => (a === "#" ? 1 : b === "#" ? -1 : a.localeCompare(b)))
+    .map(([letter, books]) => ({ letter, books }));
+}
+
+interface SeriesGroup { name: string; books: CoverShelfBook[]; }
+
+function filtersToPrefs(f: LibraryFilters): Partial<LibraryPrefs> {
+  return {
+    filterStatus: f.status, filterGenres: f.genres, filterAuthors: f.authors,
+    filterPageRange: f.pageRange, filterMinRating: f.minRating, filterTagIds: f.tagIds,
+  };
+}
+
+function prefsToFilters(p: LibraryPrefs): LibraryFilters {
+  return {
+    status: (p.filterStatus ?? []) as BookStatus[],
+    genres: p.filterGenres ?? [], authors: p.filterAuthors ?? [],
+    pageRange: p.filterPageRange ?? null, minRating: p.filterMinRating ?? null,
+    tagIds: p.filterTagIds ?? [],
+  };
+}
+
+/* ── Inline Sort Strip ────────────────────────────── */
+
+function SortStrip({ sortKey, sortDir, onSelect, onToggleDir }: {
+  sortKey: SortKey; sortDir: SortDir;
+  onSelect: (key: SortKey) => void; onToggleDir: () => void;
+}) {
   return (
-    <Text style={styles.stars}>
-      {"★".repeat(full)}{"☆".repeat(5 - full)}
-    </Text>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={srt.strip}>
+      {SORT_OPTIONS.map((opt) => {
+        const active = opt.key === sortKey;
+        return (
+          <Pressable key={opt.key} style={[srt.pill, active && srt.pillActive]}
+            onPress={() => { if (active) onToggleDir(); else onSelect(opt.key); }}>
+            {active && <Text style={srt.dirArrow}>{sortDir === "asc" ? "↑" : "↓"}</Text>}
+            <Text style={[srt.pillLabel, active && srt.pillLabelActive]}>{opt.shortLabel}</Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
   );
 }
 
-function ProgressBar({ bookId }: { bookId: number }) {
-  const [progress, setProgress] = useState<ProgressRow | null>(null);
-
-  useEffect(() => {
-    getOne<ProgressRow>(
-      "SELECT current_page, percentage FROM reading_progress WHERE book_id = ?",
-      [bookId]
-    ).then(setProgress);
-  }, [bookId]);
-
-  const pct = progress?.percentage ?? 0;
-
-  return (
-    <View style={styles.progressWrap}>
-      <View style={styles.progressBg}>
-        <View style={[styles.progressFill, { width: `${Math.min(pct, 100)}%` }]} />
-      </View>
-      {pct > 0 && <Text style={styles.progressText}>{Math.round(pct)}%</Text>}
-    </View>
-  );
-}
-
-function BookCard({ book, showProgress }: { book: BookWithEntry; showProgress: boolean }) {
-  const { entry } = book;
-
-  return (
-    <Pressable style={styles.bookCard}>
-      <View>
-        {book.cover_url ? (
-          <Image source={{ uri: book.cover_url }} style={styles.bookCover} contentFit="cover" />
-        ) : (
-          <View style={[styles.bookCover, styles.bookCoverPlaceholder]}>
-            <Text style={styles.coverPlaceholderEmoji}>📖</Text>
-          </View>
-        )}
-
-        {/* Overlay progress bar at bottom of cover for reading/dnf */}
-        {showProgress && (
-          <View style={styles.coverProgressWrap}>
-            <View style={styles.coverProgressBg}>
-              <OverlayProgress bookId={book.id} />
-            </View>
-          </View>
-        )}
-      </View>
-
-      <Text style={styles.bookCardTitle} numberOfLines={2}>{book.title}</Text>
-      <Text style={styles.bookCardAuthor} numberOfLines={1}>
-        {book.authors ?? "Unknown author"}
-      </Text>
-
-      {showProgress && <ProgressBar bookId={book.id} />}
-      {entry.status === "finished" && entry.rating != null && <Stars rating={entry.rating} />}
-    </Pressable>
-  );
-}
-
-function OverlayProgress({ bookId }: { bookId: number }) {
-  const [pct, setPct] = useState(0);
-
-  useEffect(() => {
-    getOne<ProgressRow>(
-      "SELECT current_page, percentage FROM reading_progress WHERE book_id = ?",
-      [bookId]
-    ).then((row) => setPct(row?.percentage ?? 0));
-  }, [bookId]);
-
-  return <View style={[styles.coverProgressFill, { width: `${Math.min(pct, 100)}%` }]} />;
-}
-
-function AddBookCard({ onPress }: { onPress: () => void }) {
-  return (
-    <Pressable style={styles.addBookCard} onPress={onPress}>
-      <View style={styles.addBookCover}>
-        <View style={styles.addBookIconCircle}>
-          <Text style={styles.addBookPlus}>+</Text>
-        </View>
-      </View>
-      <Text style={styles.addBookLabel}>Add Book</Text>
-    </Pressable>
-  );
-}
-
-/* ── Collapsible Section ────────────────────────────── */
+/* ── Collapsible Section ──────────────────────────── */
 
 function CollapsibleSection({
-  title,
-  emoji,
-  emptyText,
-  showProgress,
-  books,
-  onAddPress,
-  defaultExpanded = true,
-  accentColor,
-  rightAction,
+  title, emoji, count, children,
+  defaultExpanded = true, previewCount = -1,
+  accentColor, rightAction,
 }: {
-  title: string;
-  emoji: string;
-  emptyText: string;
-  showProgress: boolean;
-  books: BookWithEntry[];
-  onAddPress: () => void;
-  defaultExpanded?: boolean;
-  accentColor?: string;
-  rightAction?: React.ReactNode;
+  title: string; emoji: string; count: number; children: React.ReactNode;
+  defaultExpanded?: boolean; previewCount?: number;
+  accentColor?: string; rightAction?: React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-
-  const data = [...books, { _isAddCard: true as const }];
+  const [showAll, setShowAll] = useState(false);
+  const hasPreview = previewCount >= 0 && count > previewCount;
+  const isShowingPreview = hasPreview && !showAll;
 
   return (
-    <View style={styles.section}>
-      <Pressable
-        style={styles.sectionHeader}
-        onPress={() => setExpanded((e) => !e)}
-      >
-        <View style={styles.sectionHeaderLeft}>
-          <Text style={styles.chevron}>{expanded ? "▾" : "▸"}</Text>
-          {accentColor && <View style={[styles.folderDot, { backgroundColor: accentColor }]} />}
-          <Text style={styles.sectionTitle}>{emoji} {title}</Text>
-          {books.length > 0 && (
-            <View style={styles.sectionBadge}>
-              <Text style={styles.sectionBadgeText}>{books.length}</Text>
-            </View>
-          )}
-        </View>
-        <View style={styles.sectionHeaderRight}>
-          {rightAction}
-        </View>
-      </Pressable>
-
+    <View style={s.section}>
+      <SectionHeader
+        title={title} emoji={emoji} count={count}
+        chevron={expanded ? "expanded" : "collapsed"}
+        accentColor={accentColor}
+        onPress={() => setExpanded((v) => !v)}
+        rightAction={
+          <View style={s.sectionRight}>
+            {expanded && hasPreview && (
+              <Pressable onPress={() => setShowAll((v) => !v)} hitSlop={8}>
+                <Text style={s.seeAllText}>{showAll ? "Collapse" : "See All"}</Text>
+              </Pressable>
+            )}
+            {rightAction}
+          </View>
+        }
+      />
       {expanded && (
-        <>
-          {books.length === 0 && (
-            <Text style={styles.sectionEmptyHint}>{emptyText}</Text>
-          )}
-
-          <FlatList
-            data={data}
-            keyExtractor={(item, idx) =>
-              "_isAddCard" in item ? `add-${idx}` : String(item.id)
-            }
-            renderItem={({ item }) =>
-              "_isAddCard" in item ? (
-                <AddBookCard onPress={onAddPress} />
-              ) : (
-                <BookCard book={item as BookWithEntry} showProgress={showProgress} />
-              )
-            }
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.sectionList}
-          />
-        </>
+        <View style={s.sectionBody}>
+          {isShowingPreview
+            ? (children as React.ReactElement[])?.slice?.(0, previewCount) ?? children
+            : children}
+        </View>
       )}
     </View>
   );
 }
 
-/* ── New Folder Modal ───────────────────────────────── */
+/* ── Empty Section ────────────────────────────────── */
 
-function NewFolderModal({
-  visible,
-  onClose,
-  onCreate,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onCreate: (name: string, color: string) => void;
+function EmptySection({ onAdd }: { onAdd: () => void }) {
+  return (
+    <Pressable style={s.emptyCard} onPress={onAdd}>
+      <View style={s.emptyCircle}><Text style={s.emptyPlus}>+</Text></View>
+      <Text style={s.emptyLabel}>Add a book</Text>
+    </Pressable>
+  );
+}
+
+/* ── New Folder Modal ─────────────────────────────── */
+
+function NewFolderModal({ visible, onClose, onCreate }: {
+  visible: boolean; onClose: () => void; onCreate: (name: string, color: string) => void;
 }) {
   const [name, setName] = useState("");
   const [color, setColor] = useState(FOLDER_COLORS[0]);
-
   const handleCreate = () => {
     if (!name.trim()) return;
     onCreate(name.trim(), color);
-    setName("");
-    setColor(FOLDER_COLORS[0]);
-    onClose();
+    setName(""); setColor(FOLDER_COLORS[0]); onClose();
   };
 
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
-      <Pressable style={modalStyles.overlay} onPress={onClose}>
-        <Pressable style={modalStyles.card} onPress={() => {}}>
-          <Text style={modalStyles.title}>New Folder</Text>
-
-          <TextInput
-            style={modalStyles.input}
-            placeholder="Folder name..."
-            placeholderTextColor="#6b7280"
-            value={name}
-            onChangeText={setName}
-            autoFocus
-            maxLength={40}
-          />
-
-          <Text style={modalStyles.colorLabel}>Color</Text>
-          <View style={modalStyles.colorRow}>
+      <Pressable style={modal.overlay} onPress={onClose}>
+        <Pressable style={modal.card} onPress={() => {}}>
+          <Text style={modal.title}>New Folder</Text>
+          <TextInput style={modal.input} placeholder="Folder name…" placeholderTextColor={t.color.text.tertiary}
+            value={name} onChangeText={setName} autoFocus maxLength={40} />
+          <Text style={modal.colorLabel}>Color</Text>
+          <View style={modal.colorRow}>
             {FOLDER_COLORS.map((c) => (
-              <Pressable
-                key={c}
-                style={[
-                  modalStyles.colorDot,
-                  { backgroundColor: c },
-                  color === c && modalStyles.colorDotSelected,
-                ]}
-                onPress={() => setColor(c)}
-              />
+              <Pressable key={c} style={[modal.colorDot, { backgroundColor: c }, color === c && modal.colorDotActive]} onPress={() => setColor(c)} />
             ))}
           </View>
-
-          <View style={modalStyles.actions}>
-            <Pressable style={modalStyles.cancelBtn} onPress={onClose}>
-              <Text style={modalStyles.cancelBtnText}>Cancel</Text>
-            </Pressable>
-            <Pressable
-              style={[modalStyles.createBtn, !name.trim() && modalStyles.createBtnDisabled]}
-              onPress={handleCreate}
-              disabled={!name.trim()}
-            >
-              <Text style={modalStyles.createBtnText}>Create</Text>
+          <View style={modal.actions}>
+            <Pressable style={modal.cancelBtn} onPress={onClose}><Text style={modal.cancelText}>Cancel</Text></Pressable>
+            <Pressable style={[modal.createBtn, !name.trim() && { opacity: 0.4 }]} onPress={handleCreate} disabled={!name.trim()}>
+              <Text style={modal.createText}>Create</Text>
             </Pressable>
           </View>
         </Pressable>
@@ -279,24 +222,187 @@ function NewFolderModal({
   );
 }
 
-/* ── Main Library Screen ────────────────────────────── */
+/* ══════════════════════════════════════════════════════
+   Main Library Screen
+   ══════════════════════════════════════════════════════ */
 
 export default function LibraryScreen() {
-  const { books, folders, isLoading, loadLibrary, createFolder, deleteFolder } = useLibraryStore();
+  const {
+    books, folders, tags, isLoading, loadLibrary,
+    startReading, finishReading, markDNF, openBook,
+    createFolder, deleteFolder, setCurrentBook,
+  } = useLibraryStore();
   const router = useRouter();
+
+  /* ── State ───────────────────────────────────────── */
   const [showNewFolder, setShowNewFolder] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [progressMap, setProgressMap] = useState<Map<number, BookCardProgress>>(new Map());
+  const [bookTagsMap, setBookTagsMap] = useState<Map<number, number[]>>(new Map());
+  const [recentBooks, setRecentBooks] = useState<RecentBook[]>([]);
+
+  const [activeTab, setActiveTab] = useState<TabKey>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("date_added");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [filters, setFilters] = useState<LibraryFilters>(EMPTY_FILTERS);
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+
+  const [detailBook, setDetailBook] = useState<BookWithEntry | null>(null);
+
+  const scrollRef = useRef<ScrollView>(null);
+  const openSwipeableRef = useRef<Swipeable | null>(null);
+  const letterPositions = useRef<Map<string, number>>(new Map());
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /* ── Persistence ────────────────────────────────── */
+  useEffect(() => {
+    loadPrefs().then((p) => {
+      const sk = p.sortKey as SortKey;
+      if (SORT_OPTIONS.some((o) => o.key === sk)) setSortKey(sk);
+      if (p.sortDir === "asc" || p.sortDir === "desc") setSortDir(p.sortDir);
+      const tab = p.activeTab as TabKey;
+      if (["all", "reading", "want_to_read", "finished", "dnf"].includes(tab)) setActiveTab(tab);
+      setFilters(prefsToFilters(p));
+      setPrefsLoaded(true);
+    });
+  }, []);
 
   useEffect(() => {
-    loadLibrary();
-  }, [loadLibrary]);
+    if (!prefsLoaded) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      savePrefs({ sortKey, sortDir, activeTab, ...filtersToPrefs(filters) });
+    }, 500);
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+  }, [sortKey, sortDir, activeTab, filters, prefsLoaded]);
 
-  const grouped = useMemo(() => {
-    const map = new Map<BookStatus, BookWithEntry[]>();
-    for (const s of SECTIONS) map.set(s.key, []);
-    for (const book of books) {
-      map.get(book.entry.status)?.push(book);
+  /* ── Data loading ────────────────────────────────── */
+  useEffect(() => { loadLibrary(); }, [loadLibrary]);
+
+  useEffect(() => {
+    getAll<ProgressRow>("SELECT book_id, current_page, percentage FROM reading_progress").then((rows) => {
+      const map = new Map<number, BookCardProgress>();
+      for (const r of rows) map.set(r.book_id, { currentPage: r.current_page, percentage: r.percentage });
+      setProgressMap(map);
+    });
+  }, [books]);
+
+  useEffect(() => {
+    getAll<{ book_id: number; tag_id: number }>("SELECT book_id, tag_id FROM book_tags").then((rows) => {
+      const map = new Map<number, number[]>();
+      for (const r of rows) {
+        if (!map.has(r.book_id)) map.set(r.book_id, []);
+        map.get(r.book_id)!.push(r.tag_id);
+      }
+      setBookTagsMap(map);
+    });
+  }, [books]);
+
+  useEffect(() => {
+    getAll<RecentBook>(
+      `SELECT b.id, b.title, b.authors, b.cover_url, b.page_count, le.status,
+              MAX(COALESCE(rp.last_opened, le.finished_at, le.started_at)) AS last_activity
+       FROM books b
+       INNER JOIN library_entries le ON le.book_id = b.id
+       LEFT JOIN reading_progress rp ON rp.book_id = b.id
+       WHERE le.status IN ('reading', 'finished')
+         AND COALESCE(rp.last_opened, le.finished_at, le.started_at) IS NOT NULL
+       GROUP BY b.id
+       ORDER BY last_activity DESC
+       LIMIT 10`
+    ).then(setRecentBooks);
+  }, [books]);
+
+  /* ── Derived ─────────────────────────────────────── */
+  const uniqueGenres = useMemo(() => {
+    const set = new Set<string>();
+    for (const b of books) if (b.genres) for (const g of b.genres.split(",")) { const v = g.trim(); if (v) set.add(v); }
+    return Array.from(set).sort();
+  }, [books]);
+
+  const uniqueAuthors = useMemo(() => {
+    const set = new Set<string>();
+    for (const b of books) if (b.authors) set.add(b.authors);
+    return Array.from(set).sort();
+  }, [books]);
+
+  const isControlsActive =
+    searchQuery.trim().length > 0 || sortKey !== "date_added" ||
+    sortDir !== "desc" || countActiveFilters(filters) > 0;
+
+  const activeFilterCount = countActiveFilters(filters);
+
+  const statusCounts = useMemo(() => {
+    const m: Record<BookStatus, number> = { reading: 0, want_to_read: 0, finished: 0, dnf: 0 };
+    for (const b of books) m[b.entry.status]++;
+    return m;
+  }, [books]);
+
+  const segments = useMemo<Segment[]>(() => [
+    { key: "all", label: "All", count: books.length },
+    { key: "reading", label: "Reading", count: statusCounts.reading },
+    { key: "want_to_read", label: "Want", count: statusCounts.want_to_read },
+    { key: "finished", label: "Done", count: statusCounts.finished },
+    { key: "dnf", label: "DNF", count: statusCounts.dnf },
+  ], [books.length, statusCounts]);
+
+  const tabBooks = useMemo(() => {
+    if (activeTab === "all") return books;
+    return books.filter((b) => b.entry.status === activeTab);
+  }, [books, activeTab]);
+
+  const filteredSorted = useMemo(() => {
+    let result = [...tabBooks];
+    const q = searchQuery.trim().toLowerCase();
+    if (q) result = result.filter((b) => b.title.toLowerCase().includes(q) || (b.authors?.toLowerCase().includes(q) ?? false));
+    if (filters.status.length > 0) result = result.filter((b) => filters.status.includes(b.entry.status));
+    if (filters.genres.length > 0) result = result.filter((b) => { if (!b.genres) return false; const bg = b.genres.split(",").map((g) => g.trim()); return filters.genres.some((fg) => bg.includes(fg)); });
+    if (filters.authors.length > 0) result = result.filter((b) => filters.authors.includes(b.authors ?? ""));
+    if (filters.pageRange) { const [min, max] = filters.pageRange; result = result.filter((b) => b.page_count != null && b.page_count >= min && b.page_count <= max); }
+    if (filters.minRating != null) { const min = filters.minRating; result = result.filter((b) => (b.entry.rating ?? 0) >= min); }
+    if (filters.tagIds.length > 0) result = result.filter((b) => { const bt = bookTagsMap.get(b.id) ?? []; return filters.tagIds.some((tid) => bt.includes(tid)); });
+    result.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case "title": cmp = a.title.localeCompare(b.title); break;
+        case "author": cmp = (a.authors ?? "").localeCompare(b.authors ?? ""); break;
+        case "page_count": cmp = (a.page_count ?? 0) - (b.page_count ?? 0); break;
+        case "published_year": cmp = (a.published_year ?? 0) - (b.published_year ?? 0); break;
+        case "progress": cmp = (progressMap.get(a.id)?.percentage ?? 0) - (progressMap.get(b.id)?.percentage ?? 0); break;
+        case "rating": cmp = (a.entry.rating ?? 0) - (b.entry.rating ?? 0); break;
+        case "date_added": cmp = (a.entry.date_added ?? "").localeCompare(b.entry.date_added ?? ""); break;
+      }
+      return sortDir === "desc" ? -cmp : cmp;
+    });
+    return result;
+  }, [tabBooks, searchQuery, filters, sortKey, sortDir, progressMap, bookTagsMap]);
+
+  const letterGroups = useMemo(() => {
+    if (activeTab === "all" || isControlsActive) return [];
+    return groupByLetter(tabBooks);
+  }, [activeTab, tabBooks, isControlsActive]);
+
+  const availableLetters = useMemo(() => letterGroups.map((g) => g.letter), [letterGroups]);
+
+  const seriesGroups = useMemo<SeriesGroup[]>(() => {
+    const map = new Map<string, BookWithEntry[]>();
+    for (const b of books) {
+      if (b.series) {
+        if (!map.has(b.series)) map.set(b.series, []);
+        map.get(b.series)!.push(b);
+      }
     }
-    return map;
+    return Array.from(map.entries())
+      .filter(([, list]) => list.length >= 2)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, list]) => ({
+        name,
+        books: list
+          .sort((a, b) => (a.series_index ?? 999) - (b.series_index ?? 999))
+          .map((bk) => ({ id: bk.id, title: bk.title, authors: bk.authors, cover_url: bk.cover_url, status: bk.entry.status })),
+      }));
   }, [books]);
 
   const bookMap = useMemo(() => {
@@ -305,249 +411,368 @@ export default function LibraryScreen() {
     return m;
   }, [books]);
 
-  const [refreshing, setRefreshing] = useState(false);
+  const currentlyReading = useMemo<CoverShelfBook[]>(() =>
+    books.filter((b) => b.entry.status === "reading").map((b) => ({
+      id: b.id, title: b.title, authors: b.authors, cover_url: b.cover_url, status: "reading",
+    })),
+  [books]);
 
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadLibrary();
-    setRefreshing(false);
-  }, [loadLibrary]);
+  const recentShelfBooks = useMemo<CoverShelfBook[]>(() =>
+    recentBooks.map((b) => ({ id: b.id, title: b.title, authors: b.authors, cover_url: b.cover_url, status: b.status })),
+  [recentBooks]);
 
-  const goToSearch = useCallback(() => {
-    router.push("/search");
-  }, [router]);
+  /* ── Handlers ────────────────────────────────────── */
+  const handleRefresh = useCallback(async () => { setRefreshing(true); await loadLibrary(); setRefreshing(false); }, [loadLibrary]);
+  const goToSearch = useCallback(() => router.push("/search"), [router]);
 
-  const handleCreateFolder = useCallback(
-    async (name: string, color: string) => {
-      await createFolder(name, color);
-    },
-    [createFolder]
-  );
+  const handleOpenReader = useCallback(async (book: BookWithEntry) => {
+    await openBook(book.id); setCurrentBook(book); router.push("/reader");
+  }, [openBook, setCurrentBook, router]);
 
-  const handleDeleteFolder = useCallback(
-    (folder: FolderWithBooks) => {
-      Alert.alert(
-        "Delete Folder",
-        `Delete "${folder.name}"? Books won't be removed from your library.`,
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Delete", style: "destructive", onPress: () => deleteFolder(folder.id) },
-        ]
-      );
-    },
-    [deleteFolder]
-  );
+  const handleDeleteFolder = useCallback((folder: FolderWithBooks) => {
+    Alert.alert("Delete Folder", `Delete "${folder.name}"? Books won't be removed from your library.`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: () => deleteFolder(folder.id) },
+    ]);
+  }, [deleteFolder]);
 
   const getFolderBooks = useCallback(
-    (folder: FolderWithBooks): BookWithEntry[] =>
-      folder.bookIds.map((id) => bookMap.get(id)).filter(Boolean) as BookWithEntry[],
+    (folder: FolderWithBooks): BookWithEntry[] => folder.bookIds.map((id) => bookMap.get(id)).filter(Boolean) as BookWithEntry[],
     [bookMap]
   );
 
+  const clearAllControls = useCallback(() => {
+    setSearchQuery(""); setSortKey("date_added"); setSortDir("desc");
+    setFilters(EMPTY_FILTERS);
+  }, []);
+
+  const openDetail = useCallback((bookId: number) => {
+    const book = bookMap.get(bookId);
+    if (book) setDetailBook(book);
+  }, [bookMap]);
+
+  const closeOpenSwipeable = useCallback(() => { openSwipeableRef.current?.close(); openSwipeableRef.current = null; }, []);
+  const handleSwipeableWillOpen = useCallback((ref: Swipeable) => {
+    if (openSwipeableRef.current && openSwipeableRef.current !== ref) openSwipeableRef.current.close();
+    openSwipeableRef.current = ref;
+  }, []);
+
+  const handleSheetStartReading = useCallback(async (bookId: number) => { await startReading(bookId); }, [startReading]);
+  const handleSheetFinish = useCallback(async (bookId: number) => { await finishReading(bookId); }, [finishReading]);
+  const handleSheetDNF = useCallback(async (bookId: number) => { await markDNF(bookId); }, [markDNF]);
+  const handleSheetOpenReader = useCallback(async (bookId: number) => {
+    const book = bookMap.get(bookId); if (book) await handleOpenReader(book);
+  }, [bookMap, handleOpenReader]);
+
+  const handleLetterSelect = useCallback((letter: string) => {
+    const y = letterPositions.current.get(letter);
+    if (y != null) scrollRef.current?.scrollTo({ y, animated: true });
+  }, []);
+
+  const registerLetterPosition = useCallback((letter: string, event: LayoutChangeEvent) => {
+    letterPositions.current.set(letter, event.nativeEvent.layout.y);
+  }, []);
+
+  const renderCompactRows = useCallback((list: BookWithEntry[]) =>
+    list.map((book) => (
+      <CompactBookRow key={book.id} book={book} progress={progressMap.get(book.id)}
+        onPress={() => openDetail(book.id)} onLongPress={() => openDetail(book.id)}
+        onStartReading={() => startReading(book.id)} onMarkFinished={() => finishReading(book.id)}
+        onMarkDNF={() => markDNF(book.id)} onSwipeableWillOpen={handleSwipeableWillOpen} />
+    )),
+    [progressMap, openDetail, startReading, finishReading, markDNF, handleSwipeableWillOpen]
+  );
+
+  const showAlphabetView = activeTab !== "all" && !isControlsActive;
+
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#818cf8" />
-      }
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerRow}>
+    <View style={s.root}>
+      <ScrollView
+        ref={scrollRef} style={s.scroller}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={t.color.accent.light} />}
+        onScrollBeginDrag={closeOpenSwipeable}
+      >
+        {/* ── Header ─────────────────────────────────── */}
+        <View style={s.header}>
           <View>
-            <Text style={styles.headerTitle}>My Library</Text>
-            <Text style={styles.headerCount}>
-              {books.length} {books.length === 1 ? "book" : "books"}
-            </Text>
+            <Text style={s.headerTitle}>My Library</Text>
+            <Text style={s.headerSub}>{books.length} {books.length === 1 ? "book" : "books"}</Text>
           </View>
-          <Pressable style={styles.headerAddBtn} onPress={goToSearch}>
-            <Text style={styles.headerAddBtnText}>+ Add Book</Text>
+          <Pressable style={s.addBtn} onPress={goToSearch}>
+            <Text style={s.addBtnText}>+ Add</Text>
           </Pressable>
         </View>
-      </View>
 
-      {/* Loading */}
-      {isLoading && books.length === 0 && (
-        <View style={styles.centerState}>
-          <ActivityIndicator color="#818cf8" size="large" />
+        {/* ── Search + Filter ────────────────────────── */}
+        <View style={ctrl.searchRow}>
+          <View style={{ flex: 1 }}>
+            <SearchBar value={searchQuery} onChangeText={setSearchQuery} placeholder="Search title or author…" />
+          </View>
+          <Pressable
+            style={[ctrl.filterBtn, activeFilterCount > 0 && ctrl.filterBtnActive]}
+            onPress={() => setShowFilterModal(true)}
+          >
+            <Text style={ctrl.filterBtnIcon}>☰</Text>
+            {activeFilterCount > 0 && (
+              <View style={ctrl.filterBadge}><Text style={ctrl.filterBadgeText}>{activeFilterCount}</Text></View>
+            )}
+          </Pressable>
         </View>
+
+        {/* ── Sort Strip ─────────────────────────────── */}
+        <SortStrip sortKey={sortKey} sortDir={sortDir}
+          onSelect={setSortKey} onToggleDir={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))} />
+
+        {/* ── Active controls bar ────────────────────── */}
+        {isControlsActive && (
+          <View style={ctrl.activeBar}>
+            <Text style={ctrl.resultCount}>
+              {filteredSorted.length} {filteredSorted.length === 1 ? "result" : "results"}
+            </Text>
+            <Pressable style={ctrl.resetBtn} onPress={clearAllControls} hitSlop={8}>
+              <Text style={ctrl.resetText}>Reset</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* ── Segmented Control ──────────────────────── */}
+        <SegmentedControl segments={segments} activeKey={activeTab} onChange={(k) => {
+          setActiveTab(k as TabKey);
+          letterPositions.current.clear();
+          scrollRef.current?.scrollTo({ y: 0, animated: false });
+        }} />
+
+        {/* ── Loading ────────────────────────────────── */}
+        {isLoading && books.length === 0 && (
+          <View style={s.loader}><ActivityIndicator color={t.color.accent.light} size="large" /></View>
+        )}
+
+        {/* ── Content ────────────────────────────────── */}
+        {isControlsActive ? (
+          <View style={s.flatSection}>
+            {filteredSorted.length > 0 ? renderCompactRows(filteredSorted) : (
+              <View style={s.noResults}>
+                <Text style={s.noResultsEmoji}>📭</Text>
+                <Text style={s.noResultsText}>No books match your criteria</Text>
+              </View>
+            )}
+          </View>
+        ) : activeTab === "all" ? (
+          <>
+            <CoverShelf title="Recently Read" data={recentShelfBooks} progressMap={progressMap}
+              onPress={openDetail} onLongPress={openDetail} />
+            <CoverShelf title="Currently Reading" data={currentlyReading} progressMap={progressMap}
+              onPress={openDetail} onLongPress={openDetail} />
+            {seriesGroups.map((sg) => (
+              <CoverShelf key={sg.name} title={sg.name} data={sg.books} progressMap={progressMap}
+                onPress={openDetail} onLongPress={openDetail} />
+            ))}
+            {folders.length > 0 && (
+              <View style={s.divider}>
+                <View style={s.dividerLine} /><Text style={s.dividerLabel}>Folders</Text><View style={s.dividerLine} />
+              </View>
+            )}
+            {folders.map((folder) => {
+              const fBooks = getFolderBooks(folder);
+              return (
+                <CollapsibleSection key={`f-${folder.id}`} title={folder.name} emoji="📁" count={fBooks.length}
+                  accentColor={folder.color} defaultExpanded={false}
+                  rightAction={<Pressable style={s.deleteBtn} onPress={() => handleDeleteFolder(folder)} hitSlop={8}><Text style={s.deleteText}>✕</Text></Pressable>}>
+                  {fBooks.length > 0 ? renderCompactRows(fBooks) : <EmptySection onAdd={goToSearch} />}
+                </CollapsibleSection>
+              );
+            })}
+            <Pressable style={s.newFolderBtn} onPress={() => setShowNewFolder(true)}>
+              <Text style={s.newFolderPlus}>+</Text><Text style={s.newFolderLabel}>New Folder</Text>
+            </Pressable>
+          </>
+        ) : (
+          <View style={s.alphabetContent}>
+            {letterGroups.length === 0 ? (
+              <EmptySection onAdd={goToSearch} />
+            ) : (
+              letterGroups.map((group) => (
+                <View key={group.letter} onLayout={(e) => registerLetterPosition(group.letter, e)}>
+                  <View style={s.letterHeader}>
+                    <Text style={s.letterText}>{group.letter}</Text>
+                    <View style={s.letterLine} />
+                  </View>
+                  {renderCompactRows(group.books)}
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
+        <View style={{ height: t.space._10 }} />
+      </ScrollView>
+
+      {showAlphabetView && availableLetters.length > 1 && (
+        <AlphabetIndex letters={availableLetters} onSelect={handleLetterSelect} />
       )}
 
-      {/* Built-in sections */}
-      {SECTIONS.map((section) => (
-        <CollapsibleSection
-          key={section.key}
-          title={section.title}
-          emoji={section.emoji}
-          emptyText={section.emptyText}
-          showProgress={section.showProgress}
-          books={grouped.get(section.key) ?? []}
-          onAddPress={goToSearch}
-        />
-      ))}
-
-      {/* Divider */}
-      <View style={styles.folderDivider}>
-        <View style={styles.folderDividerLine} />
-        <Text style={styles.folderDividerText}>Folders</Text>
-        <View style={styles.folderDividerLine} />
-      </View>
-
-      {/* Custom folders */}
-      {folders.map((folder) => (
-        <CollapsibleSection
-          key={`folder-${folder.id}`}
-          title={folder.name}
-          emoji="📁"
-          emptyText="No books in this folder yet"
-          showProgress={false}
-          books={getFolderBooks(folder)}
-          onAddPress={goToSearch}
-          accentColor={folder.color}
-          rightAction={
-            <Pressable
-              style={styles.folderDeleteBtn}
-              onPress={() => handleDeleteFolder(folder)}
-              hitSlop={8}
-            >
-              <Text style={styles.folderDeleteText}>✕</Text>
-            </Pressable>
-          }
-        />
-      ))}
-
-      {/* New Folder button */}
-      <Pressable style={styles.newFolderBtn} onPress={() => setShowNewFolder(true)}>
-        <Text style={styles.newFolderPlus}>+</Text>
-        <Text style={styles.newFolderText}>New Folder</Text>
-      </Pressable>
-
-      <View style={{ height: 40 }} />
-
-      <NewFolderModal
-        visible={showNewFolder}
-        onClose={() => setShowNewFolder(false)}
-        onCreate={handleCreateFolder}
-      />
-    </ScrollView>
+      <FilterSheet visible={showFilterModal} filters={filters} onChange={setFilters}
+        onApply={() => setShowFilterModal(false)} onClear={() => setFilters(EMPTY_FILTERS)}
+        onClose={() => setShowFilterModal(false)}
+        uniqueGenres={uniqueGenres} uniqueAuthors={uniqueAuthors} tags={tags} />
+      <NewFolderModal visible={showNewFolder} onClose={() => setShowNewFolder(false)}
+        onCreate={(n, c) => createFolder(n, c)} />
+      <BookDetailSheet book={detailBook} progress={detailBook ? progressMap.get(detailBook.id) : undefined}
+        visible={detailBook !== null} onClose={() => setDetailBook(null)}
+        onStartReading={handleSheetStartReading} onMarkFinished={handleSheetFinish}
+        onMarkDNF={handleSheetDNF} onOpenReader={handleSheetOpenReader} />
+    </View>
   );
 }
 
-/* ── Styles ─────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════
+   Styles
+   ══════════════════════════════════════════════════════ */
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0a0a0a" },
-  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
-  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  headerTitle: { color: "#ffffff", fontSize: 28, fontWeight: "800" },
-  headerCount: { color: "#6b7280", fontSize: 14, marginTop: 2 },
-  headerAddBtn: { backgroundColor: "#4f46e5", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, marginTop: 4 },
-  headerAddBtnText: { color: "#ffffff", fontSize: 14, fontWeight: "700" },
-  centerState: { alignItems: "center", paddingVertical: 60, paddingHorizontal: 32 },
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: t.color.bg.base },
+  scroller: { flex: 1 },
 
-  section: { marginTop: 20 },
-  sectionHeader: {
-    flexDirection: "row",
+  header: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start",
+    paddingHorizontal: t.space._5, paddingTop: t.space._4, paddingBottom: t.space._2,
+  },
+  headerTitle: { ...t.font.display },
+  headerSub: { ...t.font.body, color: t.color.text.tertiary, marginTop: 2 },
+  addBtn: {
+    backgroundColor: t.color.accent.strong,
+    paddingHorizontal: t.space._4 - 2,
+    paddingVertical: t.space._2 + 1,
+    borderRadius: t.radius.xl,
+    marginTop: t.space._1,
+  },
+  addBtnText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  loader: { alignItems: "center", paddingVertical: t.space._16 - 4 },
+
+  section: { marginTop: t.space._4 },
+  sectionRight: { flexDirection: "row", alignItems: "center", gap: t.space._3 },
+  seeAllText: { color: t.color.accent.base, fontSize: 12, fontWeight: "600" },
+  sectionBody: { marginTop: 2 },
+
+  emptyCard: {
+    marginHorizontal: t.space._5, marginBottom: t.space._3,
+    borderWidth: 1.5, borderStyle: "dashed", borderColor: t.color.border.default,
+    borderRadius: t.radius["3xl"], paddingVertical: t.space._6,
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 8,
   },
-  sectionHeaderLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
-  sectionHeaderRight: { flexDirection: "row", alignItems: "center" },
-  chevron: { color: "#6b7280", fontSize: 14, marginRight: 6, width: 14 },
-  folderDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
-  sectionTitle: { color: "#f3f4f6", fontSize: 16, fontWeight: "700" },
-  sectionBadge: { marginLeft: 8, backgroundColor: "#1c1c1e", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  sectionBadgeText: { color: "#9ca3af", fontSize: 12, fontWeight: "600" },
-  sectionEmptyHint: { color: "#4b5563", fontSize: 13, paddingHorizontal: 20, paddingLeft: 40, marginBottom: 4 },
-  sectionList: { paddingHorizontal: 16, paddingTop: 4 },
+  emptyCircle: {
+    width: 40, height: 40, borderRadius: 20, backgroundColor: t.color.bg.raised,
+    borderWidth: 1, borderColor: t.color.border.strong,
+    alignItems: "center", justifyContent: "center", marginBottom: t.space._2,
+  },
+  emptyPlus: { color: t.color.accent.light, fontSize: 22, fontWeight: "300", marginTop: -2 },
+  emptyLabel: { ...t.font.caption, color: t.color.text.muted },
 
-  bookCard: { width: 120, marginRight: 12 },
-  bookCover: { width: 120, height: 170, borderRadius: 10, backgroundColor: "#1c1c1e" },
-  bookCoverPlaceholder: { alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#2c2c2e" },
-  coverPlaceholderEmoji: { fontSize: 32 },
+  divider: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: t.space._5, marginTop: t.space._6, marginBottom: t.space._1,
+  },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: t.color.border.default },
+  dividerLabel: { ...t.font.label, color: t.color.text.muted, marginHorizontal: t.space._3, letterSpacing: 1.5 },
 
-  coverProgressWrap: { position: "absolute", bottom: 0, left: 0, right: 0, paddingHorizontal: 6, paddingBottom: 6 },
-  coverProgressBg: { height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.15)", overflow: "hidden" },
-  coverProgressFill: { height: 3, borderRadius: 2, backgroundColor: "#818cf8" },
-
-  bookCardTitle: { color: "#f3f4f6", fontSize: 13, fontWeight: "700", marginTop: 6, lineHeight: 17 },
-  bookCardAuthor: { color: "#9ca3af", fontSize: 11, marginTop: 2 },
-  stars: { color: "#fbbf24", fontSize: 11, marginTop: 4 },
-
-  progressWrap: { marginTop: 4, width: "100%" },
-  progressBg: { height: 3, width: "100%", borderRadius: 2, backgroundColor: "#2c2c2e" },
-  progressFill: { height: 3, borderRadius: 2, backgroundColor: "#818cf8" },
-  progressText: { color: "#6b7280", fontSize: 10, marginTop: 2 },
-
-  addBookCard: { width: 120, marginRight: 12, alignItems: "center" },
-  addBookCover: {
-    width: 120, height: 170, borderRadius: 10, borderWidth: 2,
-    borderColor: "#2c2c2e", borderStyle: "dashed", backgroundColor: "#111113",
+  deleteBtn: {
+    width: 24, height: 24, borderRadius: 12, backgroundColor: t.color.bg.overlay,
     alignItems: "center", justifyContent: "center",
   },
-  addBookIconCircle: {
-    width: 48, height: 48, borderRadius: 24, backgroundColor: "#1c1c1e",
-    borderWidth: 1, borderColor: "#3f3f46", alignItems: "center", justifyContent: "center",
-  },
-  addBookPlus: { color: "#818cf8", fontSize: 28, fontWeight: "300", marginTop: -2 },
-  addBookLabel: { color: "#6b7280", fontSize: 12, fontWeight: "600", marginTop: 6 },
-
-  folderDivider: {
-    flexDirection: "row", alignItems: "center", paddingHorizontal: 20,
-    marginTop: 28, marginBottom: 4,
-  },
-  folderDividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: "#2c2c2e" },
-  folderDividerText: { color: "#6b7280", fontSize: 12, fontWeight: "600", marginHorizontal: 12, textTransform: "uppercase", letterSpacing: 1 },
-
-  folderDeleteBtn: {
-    width: 24, height: 24, borderRadius: 12, backgroundColor: "#1c1c1e",
-    alignItems: "center", justifyContent: "center",
-  },
-  folderDeleteText: { color: "#6b7280", fontSize: 11, fontWeight: "700" },
+  deleteText: { color: t.color.text.tertiary, fontSize: 11, fontWeight: "700" },
 
   newFolderBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center",
-    marginHorizontal: 20, marginTop: 16, paddingVertical: 14,
-    borderRadius: 12, borderWidth: 1, borderColor: "#2c2c2e", borderStyle: "dashed",
-    backgroundColor: "#111113",
+    marginHorizontal: t.space._5, marginTop: t.space._4, paddingVertical: t.space._4 - 2,
+    borderRadius: t.radius.xl, borderWidth: 1, borderColor: t.color.border.default,
+    borderStyle: "dashed", backgroundColor: "rgba(20,20,20,0.5)",
   },
-  newFolderPlus: { color: "#818cf8", fontSize: 20, fontWeight: "400", marginRight: 8 },
-  newFolderText: { color: "#9ca3af", fontSize: 14, fontWeight: "600" },
+  newFolderPlus: { color: t.color.accent.light, fontSize: 20, marginRight: t.space._2 },
+  newFolderLabel: { ...t.font.caption, color: t.color.text.secondary },
+
+  flatSection: { marginTop: t.space._1 },
+  noResults: { alignItems: "center", paddingVertical: t.space._12 },
+  noResultsEmoji: { fontSize: 36, marginBottom: t.space._2 },
+  noResultsText: { ...t.font.body, color: t.color.text.muted },
+
+  alphabetContent: { marginTop: t.space._1, paddingRight: 22 },
+  letterHeader: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: t.space._5, paddingTop: t.space._4 - 2, paddingBottom: t.space._2,
+  },
+  letterText: {
+    color: t.color.accent.light, fontSize: 14, fontWeight: "800",
+    width: 22, textAlign: "center",
+  },
+  letterLine: {
+    flex: 1, height: StyleSheet.hairlineWidth,
+    backgroundColor: "rgba(129,140,248,0.15)", marginLeft: t.space._2,
+  },
 });
 
-/* ── Modal Styles ───────────────────────────────────── */
+const ctrl = StyleSheet.create({
+  searchRow: {
+    flexDirection: "row", alignItems: "center",
+    marginHorizontal: t.space._4, marginTop: t.space._2, gap: t.space._2,
+  },
+  filterBtn: {
+    width: 42, height: 42, borderRadius: t.radius.xl,
+    backgroundColor: t.color.bg.raised, borderWidth: 1, borderColor: t.color.border.default,
+    alignItems: "center", justifyContent: "center",
+  },
+  filterBtnActive: { borderColor: t.color.accent.strong, backgroundColor: t.color.accent.bg },
+  filterBtnIcon: { color: t.color.text.tertiary, fontSize: 16 },
+  filterBadge: {
+    position: "absolute", top: -4, right: -4,
+    backgroundColor: t.color.accent.strong, borderRadius: t.radius.md,
+    minWidth: 16, height: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 4,
+  },
+  filterBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },
 
-const modalStyles = StyleSheet.create({
-  overlay: {
-    flex: 1, backgroundColor: "rgba(0,0,0,0.7)",
-    justifyContent: "center", alignItems: "center", padding: 32,
+  activeBar: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: t.space._5, marginTop: t.space._2,
   },
+  resultCount: { ...t.font.caption, color: t.color.text.muted },
+  resetBtn: { paddingHorizontal: t.space._3, paddingVertical: t.space._1 },
+  resetText: { color: t.color.accent.base, fontSize: 12, fontWeight: "600" },
+});
+
+const srt = StyleSheet.create({
+  strip: { paddingHorizontal: t.space._4, paddingVertical: t.space._2, gap: t.space._2 - 2 },
+  pill: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: t.space._3, paddingVertical: 5, borderRadius: t.radius.md,
+    backgroundColor: "rgba(255,255,255,0.03)", borderWidth: 1, borderColor: "rgba(255,255,255,0.05)",
+  },
+  pillActive: { backgroundColor: t.color.accent.bg, borderColor: t.color.accent.border },
+  pillLabel: { color: t.color.text.muted, fontSize: 12, fontWeight: "600" },
+  pillLabelActive: { color: t.color.accent.lightest },
+  dirArrow: { color: t.color.accent.lighter, fontSize: 11, fontWeight: "800", marginRight: 3 },
+});
+
+const modal = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center", padding: t.space._8 },
   card: {
-    width: "100%", maxWidth: 360, backgroundColor: "#1c1c1e",
-    borderRadius: 16, padding: 24, borderWidth: 1, borderColor: "#2c2c2e",
+    width: "100%", maxWidth: 360, backgroundColor: t.color.bg.overlay,
+    borderRadius: t.radius["3xl"], padding: t.space._6, borderWidth: 1, borderColor: t.color.border.accent,
   },
-  title: { color: "#ffffff", fontSize: 20, fontWeight: "800", marginBottom: 16 },
+  title: { ...t.font.title, marginBottom: t.space._4 },
   input: {
-    backgroundColor: "#0a0a0a", borderRadius: 10, borderWidth: 1, borderColor: "#2c2c2e",
-    paddingHorizontal: 14, paddingVertical: 12, color: "#ffffff", fontSize: 16, marginBottom: 16,
+    backgroundColor: t.color.bg.base, borderRadius: t.radius.lg, borderWidth: 1, borderColor: t.color.border.accent,
+    paddingHorizontal: t.space._4 - 2, paddingVertical: t.space._3, color: t.color.text.primary,
+    fontSize: 16, marginBottom: t.space._4,
   },
-  colorLabel: { color: "#9ca3af", fontSize: 13, fontWeight: "600", marginBottom: 8 },
-  colorRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 20 },
+  colorLabel: { ...t.font.caption, color: t.color.text.secondary, marginBottom: t.space._2 },
+  colorRow: { flexDirection: "row", flexWrap: "wrap", gap: t.space._3, marginBottom: t.space._5 },
   colorDot: { width: 32, height: 32, borderRadius: 16 },
-  colorDotSelected: { borderWidth: 3, borderColor: "#ffffff" },
-  actions: { flexDirection: "row", gap: 10 },
+  colorDotActive: { borderWidth: 3, borderColor: "#fff" },
+  actions: { flexDirection: "row", gap: t.space._3 },
   cancelBtn: {
-    flex: 1, paddingVertical: 12, borderRadius: 10,
-    backgroundColor: "#0a0a0a", alignItems: "center",
-    borderWidth: 1, borderColor: "#2c2c2e",
+    flex: 1, paddingVertical: t.space._3, borderRadius: t.radius.lg,
+    backgroundColor: t.color.bg.base, alignItems: "center", borderWidth: 1, borderColor: t.color.border.accent,
   },
-  cancelBtnText: { color: "#9ca3af", fontSize: 15, fontWeight: "600" },
-  createBtn: {
-    flex: 1, paddingVertical: 12, borderRadius: 10,
-    backgroundColor: "#4f46e5", alignItems: "center",
-  },
-  createBtnDisabled: { opacity: 0.4 },
-  createBtnText: { color: "#ffffff", fontSize: 15, fontWeight: "700" },
+  cancelText: { ...t.font.headline, color: t.color.text.secondary },
+  createBtn: { flex: 1, paddingVertical: t.space._3, borderRadius: t.radius.lg, backgroundColor: t.color.accent.strong, alignItems: "center" },
+  createText: { color: "#fff", fontSize: 15, fontWeight: "700" },
 });
