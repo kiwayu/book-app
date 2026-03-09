@@ -44,6 +44,25 @@ const CREATE_READING_PROGRESS = `
   );
 `;
 
+const CREATE_FOLDERS = `
+  CREATE TABLE IF NOT EXISTS folders (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL,
+    color      TEXT    NOT NULL DEFAULT '#818cf8',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL
+  );
+`;
+
+const CREATE_FOLDER_BOOKS = `
+  CREATE TABLE IF NOT EXISTS folder_books (
+    folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+    book_id   INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    added_at  TEXT    NOT NULL,
+    PRIMARY KEY (folder_id, book_id)
+  );
+`;
+
 const CREATE_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_library_status         ON library_entries(status);
   CREATE INDEX IF NOT EXISTS idx_library_rating          ON library_entries(rating)      WHERE rating IS NOT NULL;
@@ -59,6 +78,9 @@ const CREATE_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_sessions_pages          ON reading_sessions(start_time, pages_read) WHERE pages_read > 0;
 
   CREATE INDEX IF NOT EXISTS idx_progress_last_opened    ON reading_progress(last_opened);
+
+  CREATE INDEX IF NOT EXISTS idx_folder_books_folder     ON folder_books(folder_id);
+  CREATE INDEX IF NOT EXISTS idx_folder_books_book       ON folder_books(book_id);
 `;
 
 export async function initializeDatabase(db: SQLiteDatabase) {
@@ -69,6 +91,8 @@ export async function initializeDatabase(db: SQLiteDatabase) {
   await db.execAsync(CREATE_LIBRARY_ENTRIES);
   await db.execAsync(CREATE_READING_SESSIONS);
   await db.execAsync(CREATE_READING_PROGRESS);
+  await db.execAsync(CREATE_FOLDERS);
+  await db.execAsync(CREATE_FOLDER_BOOKS);
 
   for (const stmt of CREATE_INDEXES.split(";").filter((s) => s.trim())) {
     await db.execAsync(stmt + ";");

@@ -8,30 +8,196 @@ import {
   ActivityIndicator,
   Keyboard,
   StyleSheet,
+  Modal,
+  ScrollView,
 } from "react-native";
 import { Image } from "expo-image";
-import { searchBooks, type GoogleBook } from "@/services/googleBooks";
+import {
+  searchBooks,
+  fetchBookDescription,
+  type GoogleBook,
+} from "@/services/googleBooks";
 import { useLibraryStore } from "@/store/libraryStore";
 
 const DEBOUNCE_MS = 800;
 
+/* ── Book Detail Modal ──────────────────────────────── */
+
+function BookDetailModal({
+  book,
+  visible,
+  added,
+  onClose,
+  onAdd,
+}: {
+  book: GoogleBook | null;
+  visible: boolean;
+  added: boolean;
+  onClose: () => void;
+  onAdd: () => void;
+}) {
+  const [description, setDescription] = useState<string | null>(null);
+  const [loadingDesc, setLoadingDesc] = useState(false);
+
+  useEffect(() => {
+    if (!book || !visible) {
+      setDescription(null);
+      return;
+    }
+
+    if (book.description) {
+      setDescription(book.description);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingDesc(true);
+    fetchBookDescription(book.id).then((desc) => {
+      if (!cancelled) {
+        setDescription(desc);
+        setLoadingDesc(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [book, visible]);
+
+  if (!book) return null;
+
+  const desc = description ?? book.description;
+  const plainDesc = desc
+    ? desc.replace(/<[^>]+>/g, "").replace(/&[^;]+;/g, " ").trim()
+    : null;
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <View style={modalStyles.container}>
+        {/* Close handle */}
+        <View style={modalStyles.handleWrap}>
+          <View style={modalStyles.handle} />
+        </View>
+
+        {/* Close button */}
+        <Pressable style={modalStyles.closeBtn} onPress={onClose}>
+          <Text style={modalStyles.closeBtnText}>✕</Text>
+        </Pressable>
+
+        <ScrollView
+          style={modalStyles.scroll}
+          contentContainerStyle={modalStyles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Cover */}
+          <View style={modalStyles.coverWrap}>
+            {book.coverLarge || book.cover ? (
+              <Image
+                source={{ uri: book.coverLarge ?? book.cover ?? undefined }}
+                style={modalStyles.cover}
+                contentFit="cover"
+              />
+            ) : (
+              <View style={[modalStyles.cover, modalStyles.coverPlaceholder]}>
+                <Text style={modalStyles.coverPlaceholderText}>📖</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Title & Author */}
+          <Text style={modalStyles.title}>{book.title}</Text>
+          <Text style={modalStyles.authors}>
+            {book.authors.length > 0 ? book.authors.join(", ") : "Unknown author"}
+          </Text>
+
+          {/* Meta pills */}
+          <View style={modalStyles.metaRow}>
+            {book.publishedYear != null && (
+              <View style={modalStyles.pill}>
+                <Text style={modalStyles.pillText}>{book.publishedYear}</Text>
+              </View>
+            )}
+            {book.pageCount != null && (
+              <View style={modalStyles.pill}>
+                <Text style={modalStyles.pillText}>{book.pageCount} pages</Text>
+              </View>
+            )}
+            {book.publisher && (
+              <View style={modalStyles.pill}>
+                <Text style={modalStyles.pillText}>{book.publisher}</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Categories */}
+          {book.categories.length > 0 && (
+            <View style={modalStyles.categoriesRow}>
+              {book.categories.slice(0, 4).map((cat, i) => (
+                <View key={i} style={modalStyles.categoryPill}>
+                  <Text style={modalStyles.categoryText}>{cat}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* ISBN */}
+          {book.isbn && (
+            <Text style={modalStyles.isbn}>ISBN: {book.isbn}</Text>
+          )}
+
+          {/* Synopsis */}
+          <View style={modalStyles.synopsisSection}>
+            <Text style={modalStyles.synopsisLabel}>Synopsis</Text>
+            {loadingDesc && !plainDesc && (
+              <View style={modalStyles.descLoading}>
+                <ActivityIndicator color="#818cf8" size="small" />
+                <Text style={modalStyles.descLoadingText}>Loading synopsis...</Text>
+              </View>
+            )}
+            {plainDesc ? (
+              <Text style={modalStyles.synopsisText}>{plainDesc}</Text>
+            ) : !loadingDesc ? (
+              <Text style={modalStyles.noSynopsis}>No synopsis available for this book.</Text>
+            ) : null}
+          </View>
+        </ScrollView>
+
+        {/* Bottom action */}
+        <View style={modalStyles.bottomBar}>
+          <Pressable
+            style={[modalStyles.addLibraryBtn, added && modalStyles.addLibraryBtnDone]}
+            onPress={onAdd}
+            disabled={added}
+          >
+            <Text style={[modalStyles.addLibraryBtnText, added && modalStyles.addLibraryBtnTextDone]}>
+              {added ? "✓ Added to Library" : "+ Add to Library"}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+/* ── Search Result Row ──────────────────────────────── */
+
 function BookResult({
   item,
   added,
+  onPress,
   onAdd,
 }: {
   item: GoogleBook;
   added: boolean;
+  onPress: () => void;
   onAdd: () => void;
 }) {
   return (
-    <View style={styles.resultRow}>
+    <Pressable style={styles.resultRow} onPress={onPress}>
       {item.cover ? (
-        <Image
-          source={{ uri: item.cover }}
-          style={styles.cover}
-          contentFit="cover"
-        />
+        <Image source={{ uri: item.cover }} style={styles.cover} contentFit="cover" />
       ) : (
         <View style={[styles.cover, styles.coverPlaceholder]}>
           <Text style={styles.coverPlaceholderText}>📖</Text>
@@ -39,9 +205,7 @@ function BookResult({
       )}
 
       <View style={styles.resultInfo}>
-        <Text style={styles.bookTitle} numberOfLines={2}>
-          {item.title}
-        </Text>
+        <Text style={styles.bookTitle} numberOfLines={2}>{item.title}</Text>
         <Text style={styles.bookAuthor} numberOfLines={1}>
           {item.authors.length > 0 ? item.authors.join(", ") : "Unknown author"}
         </Text>
@@ -51,25 +215,29 @@ function BookResult({
           )}
           {item.pageCount != null && (
             <Text style={styles.metaText}>
-              {item.publishedYear != null ? " · " : ""}
-              {item.pageCount} pages
+              {item.publishedYear != null ? " · " : ""}{item.pageCount} pages
             </Text>
           )}
         </View>
       </View>
 
-      <Pressable
-        onPress={onAdd}
-        disabled={added}
-        style={[styles.addBtn, added && styles.addBtnDone]}
-      >
-        <Text style={[styles.addBtnText, added && styles.addBtnTextDone]}>
-          {added ? "✓ Added" : "+ Add"}
-        </Text>
-      </Pressable>
-    </View>
+      <View style={styles.resultActions}>
+        <Pressable
+          onPress={(e) => { e.stopPropagation(); onAdd(); }}
+          disabled={added}
+          style={[styles.addBtn, added && styles.addBtnDone]}
+        >
+          <Text style={[styles.addBtnText, added && styles.addBtnTextDone]}>
+            {added ? "✓" : "+"}
+          </Text>
+        </Pressable>
+        <Text style={styles.chevron}>›</Text>
+      </View>
+    </Pressable>
   );
 }
+
+/* ── Search Screen ──────────────────────────────────── */
 
 export default function SearchScreen() {
   const [query, setQuery] = useState("");
@@ -78,6 +246,7 @@ export default function SearchScreen() {
   const [error, setError] = useState<string | null>(null);
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
   const [hasSearched, setHasSearched] = useState(false);
+  const [selectedBook, setSelectedBook] = useState<GoogleBook | null>(null);
 
   const addBook = useLibraryStore((s) => s.addBook);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -110,20 +279,19 @@ export default function SearchScreen() {
     (text: string) => {
       setQuery(text);
       if (timerRef.current) clearTimeout(timerRef.current);
-      if (text.trim().length > 0) {
+      if (text.trim().length >= 2) {
         timerRef.current = setTimeout(() => runSearch(text), DEBOUNCE_MS);
       } else {
         setResults([]);
         setHasSearched(false);
+        setError(null);
       }
     },
     [runSearch]
   );
 
   useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, []);
 
   const handleAdd = useCallback(
@@ -217,7 +385,7 @@ export default function SearchScreen() {
           <Text style={styles.emptyEmoji}>🔎</Text>
           <Text style={styles.stateText}>Search for books</Text>
           <Text style={styles.stateSubtext}>
-            Find books by title, author, or ISBN
+            Tap a result to see full details and synopsis
           </Text>
         </View>
       )}
@@ -239,15 +407,29 @@ export default function SearchScreen() {
           <BookResult
             item={item}
             added={addedIds.has(item.id)}
+            onPress={() => setSelectedBook(item)}
             onAdd={() => handleAdd(item)}
           />
         )}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.listContent}
       />
+
+      {/* Book Detail Modal */}
+      <BookDetailModal
+        book={selectedBook}
+        visible={selectedBook !== null}
+        added={selectedBook ? addedIds.has(selectedBook.id) : false}
+        onClose={() => setSelectedBook(null)}
+        onAdd={() => {
+          if (selectedBook) handleAdd(selectedBook);
+        }}
+      />
     </View>
   );
 }
+
+/* ── Search Screen Styles ───────────────────────────── */
 
 const styles = StyleSheet.create({
   container: {
@@ -406,11 +588,18 @@ const styles = StyleSheet.create({
     color: "#6b7280",
     fontSize: 12,
   },
+  resultActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   addBtn: {
     backgroundColor: "#4f46e5",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
   },
   addBtnDone: {
     backgroundColor: "#1c1c1e",
@@ -419,10 +608,195 @@ const styles = StyleSheet.create({
   },
   addBtnText: {
     color: "#ffffff",
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 18,
+    fontWeight: "600",
   },
   addBtnTextDone: {
+    color: "#6b7280",
+    fontSize: 14,
+  },
+  chevron: {
+    color: "#4b5563",
+    fontSize: 22,
+    fontWeight: "300",
+  },
+});
+
+/* ── Modal Styles ───────────────────────────────────── */
+
+const modalStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#0a0a0a",
+  },
+  handleWrap: {
+    alignItems: "center",
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#3f3f46",
+  },
+  closeBtn: {
+    position: "absolute",
+    top: 12,
+    right: 16,
+    zIndex: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#1c1c1e",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  closeBtnText: {
+    color: "#9ca3af",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 32,
+  },
+  coverWrap: {
+    alignItems: "center",
+    paddingTop: 20,
+    paddingBottom: 20,
+  },
+  cover: {
+    width: 160,
+    height: 240,
+    borderRadius: 10,
+    backgroundColor: "#1c1c1e",
+  },
+  coverPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#2c2c2e",
+  },
+  coverPlaceholderText: {
+    fontSize: 48,
+  },
+  title: {
+    color: "#ffffff",
+    fontSize: 22,
+    fontWeight: "800",
+    textAlign: "center",
+    paddingHorizontal: 24,
+    lineHeight: 28,
+  },
+  authors: {
+    color: "#9ca3af",
+    fontSize: 15,
+    textAlign: "center",
+    marginTop: 6,
+    paddingHorizontal: 24,
+  },
+  metaRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    marginTop: 14,
+    gap: 8,
+  },
+  pill: {
+    backgroundColor: "#1c1c1e",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: "#2c2c2e",
+  },
+  pillText: {
+    color: "#d1d5db",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  categoriesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    marginTop: 10,
+    gap: 6,
+  },
+  categoryPill: {
+    backgroundColor: "rgba(79, 70, 229, 0.15)",
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  categoryText: {
+    color: "#a5b4fc",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  isbn: {
+    color: "#6b7280",
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 10,
+  },
+  synopsisSection: {
+    paddingHorizontal: 24,
+    marginTop: 24,
+  },
+  synopsisLabel: {
+    color: "#f3f4f6",
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 10,
+  },
+  synopsisText: {
+    color: "#d1d5db",
+    fontSize: 15,
+    lineHeight: 24,
+  },
+  noSynopsis: {
+    color: "#6b7280",
+    fontSize: 14,
+    fontStyle: "italic",
+  },
+  descLoading: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  descLoadingText: {
+    color: "#6b7280",
+    fontSize: 14,
+  },
+  bottomBar: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#1c1c1e",
+    backgroundColor: "#0a0a0a",
+  },
+  addLibraryBtn: {
+    backgroundColor: "#4f46e5",
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  addLibraryBtnDone: {
+    backgroundColor: "#1c1c1e",
+    borderWidth: 1,
+    borderColor: "#2c2c2e",
+  },
+  addLibraryBtnText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  addLibraryBtnTextDone: {
     color: "#6b7280",
   },
 });

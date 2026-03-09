@@ -8,7 +8,12 @@ export interface GoogleBook {
   authors: string[];
   pageCount: number | null;
   cover: string | null;
+  coverLarge: string | null;
   publishedYear: number | null;
+  description: string | null;
+  publisher: string | null;
+  categories: string[];
+  isbn: string | null;
 }
 
 /* ── Google Books ─────────────────────────────────── */
@@ -17,8 +22,17 @@ interface VolumeInfo {
   title?: string;
   authors?: string[];
   pageCount?: number;
-  imageLinks?: { thumbnail?: string; smallThumbnail?: string };
+  imageLinks?: {
+    thumbnail?: string;
+    smallThumbnail?: string;
+    small?: string;
+    medium?: string;
+  };
   publishedDate?: string;
+  description?: string;
+  publisher?: string;
+  categories?: string[];
+  industryIdentifiers?: { type: string; identifier: string }[];
 }
 
 interface VolumeItem {
@@ -31,9 +45,15 @@ interface GoogleResponse {
   items?: VolumeItem[];
 }
 
-function parseCover(imageLinks?: VolumeInfo["imageLinks"]): string | null {
-  const url = imageLinks?.thumbnail ?? imageLinks?.smallThumbnail ?? null;
-  return url?.replace("http://", "https://") ?? null;
+function parseCover(
+  imageLinks?: VolumeInfo["imageLinks"]
+): { cover: string | null; coverLarge: string | null } {
+  const thumb = imageLinks?.thumbnail ?? imageLinks?.smallThumbnail ?? null;
+  const large = imageLinks?.medium ?? imageLinks?.small ?? thumb;
+  return {
+    cover: thumb?.replace("http://", "https://") ?? null,
+    coverLarge: large?.replace("http://", "https://") ?? null,
+  };
 }
 
 function parseYear(date?: string): number | null {
@@ -42,15 +62,28 @@ function parseYear(date?: string): number | null {
   return Number.isNaN(year) ? null : year;
 }
 
+function parseIsbn(ids?: VolumeInfo["industryIdentifiers"]): string | null {
+  if (!ids?.length) return null;
+  const isbn13 = ids.find((i) => i.type === "ISBN_13");
+  const isbn10 = ids.find((i) => i.type === "ISBN_10");
+  return isbn13?.identifier ?? isbn10?.identifier ?? null;
+}
+
 function toGoogleBook(item: VolumeItem): GoogleBook {
   const info = item.volumeInfo;
+  const covers = parseCover(info?.imageLinks);
   return {
     id: item.id,
     title: info?.title ?? "Untitled",
     authors: info?.authors ?? [],
     pageCount: info?.pageCount ?? null,
-    cover: parseCover(info?.imageLinks),
+    cover: covers.cover,
+    coverLarge: covers.coverLarge,
     publishedYear: parseYear(info?.publishedDate),
+    description: info?.description ?? null,
+    publisher: info?.publisher ?? null,
+    categories: info?.categories ?? [],
+    isbn: parseIsbn(info?.industryIdentifiers),
   };
 }
 
@@ -75,15 +108,18 @@ interface OLDoc {
   number_of_pages_median?: number;
   cover_i?: number;
   first_publish_year?: number;
+  publisher?: string[];
+  subject?: string[];
+  isbn?: string[];
 }
 
 interface OLResponse {
   docs?: OLDoc[];
 }
 
-function olCover(coverId?: number): string | null {
+function olCover(coverId?: number, size: "M" | "L" = "M"): string | null {
   if (!coverId) return null;
-  return `https://covers.openlibrary.org/b/id/${coverId}-M.jpg`;
+  return `https://covers.openlibrary.org/b/id/${coverId}-${size}.jpg`;
 }
 
 function toGoogleBookFromOL(doc: OLDoc): GoogleBook {
@@ -92,13 +128,20 @@ function toGoogleBookFromOL(doc: OLDoc): GoogleBook {
     title: doc.title ?? "Untitled",
     authors: doc.author_name ?? [],
     pageCount: doc.number_of_pages_median ?? null,
-    cover: olCover(doc.cover_i),
+    cover: olCover(doc.cover_i, "M"),
+    coverLarge: olCover(doc.cover_i, "L"),
     publishedYear: doc.first_publish_year ?? null,
+    description: null,
+    publisher: doc.publisher?.[0] ?? null,
+    categories: doc.subject?.slice(0, 5) ?? [],
+    isbn: doc.isbn?.[0] ?? null,
   };
 }
 
 async function searchOpenLibrary(query: string): Promise<GoogleBook[]> {
-  const url = `${OPENLIBRARY_URL}?q=${encodeURIComponent(query)}&limit=${MAX_RESULTS}&fields=key,title,author_name,number_of_pages_median,cover_i,first_publish_year`;
+  if (query.length < 2) return [];
+
+  const url = `${OPENLIBRARY_URL}?q=${encodeURIComponent(query)}&limit=${MAX_RESULTS}&fields=key,title,author_name,number_of_pages_median,cover_i,first_publish_year,publisher,subject,isbn`;
   const res = await fetch(url);
 
   if (!res.ok) throw new Error(`Open Library API ${res.status}`);
@@ -106,6 +149,27 @@ async function searchOpenLibrary(query: string): Promise<GoogleBook[]> {
   const data: OLResponse = await res.json();
   if (!data.docs?.length) return [];
   return data.docs.map(toGoogleBookFromOL);
+}
+
+/* ── Book details (lazy fetch for Open Library) ───── */
+
+interface OLWork {
+  description?: string | { value: string };
+}
+
+export async function fetchBookDescription(bookId: string): Promise<string | null> {
+  if (!bookId.startsWith("/works/")) return null;
+
+  try {
+    const res = await fetch(`https://openlibrary.org${bookId}.json`);
+    if (!res.ok) return null;
+    const data: OLWork = await res.json();
+    if (!data.description) return null;
+    if (typeof data.description === "string") return data.description;
+    return data.description.value ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /* ── Public API ───────────────────────────────────── */

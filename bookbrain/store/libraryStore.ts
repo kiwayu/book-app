@@ -27,21 +27,38 @@ export interface BookWithEntry extends Book {
   entry: LibraryEntry;
 }
 
+export interface Folder {
+  id: number;
+  name: string;
+  color: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface FolderWithBooks extends Folder {
+  bookIds: number[];
+}
+
 interface LibraryState {
   books: BookWithEntry[];
+  folders: FolderWithBooks[];
   currentBook: BookWithEntry | null;
   isLoading: boolean;
 
   loadLibrary: () => Promise<void>;
-  addBook: (
-    googleBook: GoogleBook,
-    status?: BookStatus
-  ) => Promise<BookWithEntry>;
+  addBook: (googleBook: GoogleBook, status?: BookStatus) => Promise<BookWithEntry>;
   updateStatus: (bookId: number, status: BookStatus) => Promise<void>;
   startReading: (bookId: number) => Promise<void>;
   finishReading: (bookId: number, rating?: number) => Promise<void>;
   markDNF: (bookId: number) => Promise<void>;
   setCurrentBook: (book: BookWithEntry | null) => void;
+
+  loadFolders: () => Promise<void>;
+  createFolder: (name: string, color?: string) => Promise<Folder>;
+  renameFolder: (folderId: number, name: string) => Promise<void>;
+  deleteFolder: (folderId: number) => Promise<void>;
+  addBookToFolder: (folderId: number, bookId: number) => Promise<void>;
+  removeBookFromFolder: (folderId: number, bookId: number) => Promise<void>;
 }
 
 const now = () => new Date().toISOString();
@@ -79,16 +96,35 @@ async function fetchLibrary(): Promise<BookWithEntry[]> {
   }));
 }
 
+async function fetchFolders(): Promise<FolderWithBooks[]> {
+  const folders = await getAll<Folder>(
+    "SELECT * FROM folders ORDER BY sort_order, created_at"
+  );
+
+  const folderBooks = await getAll<{ folder_id: number; book_id: number }>(
+    "SELECT folder_id, book_id FROM folder_books"
+  );
+
+  const bookMap = new Map<number, number[]>();
+  for (const fb of folderBooks) {
+    if (!bookMap.has(fb.folder_id)) bookMap.set(fb.folder_id, []);
+    bookMap.get(fb.folder_id)!.push(fb.book_id);
+  }
+
+  return folders.map((f) => ({ ...f, bookIds: bookMap.get(f.id) ?? [] }));
+}
+
 export const useLibraryStore = create<LibraryState>((set, get) => ({
   books: [],
+  folders: [],
   currentBook: null,
   isLoading: false,
 
   loadLibrary: async () => {
     set({ isLoading: true });
     try {
-      const books = await fetchLibrary();
-      set({ books });
+      const [books, folders] = await Promise.all([fetchLibrary(), fetchFolders()]);
+      set({ books, folders });
     } finally {
       set({ isLoading: false });
     }
@@ -135,21 +171,11 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
 
     await get().loadLibrary();
-
     const added = get().books.find((b) => b.id === bookId)!;
     return added;
   },
 
   updateStatus: async (bookId, status) => {
-    const updates: Record<string, string | null> = { status };
-
-    if (status === "reading" && !updates.started_at) {
-      updates.started_at = now();
-    }
-    if (status === "finished") {
-      updates.finished_at = now();
-    }
-
     await execute(
       `UPDATE library_entries
        SET status = ?,
@@ -201,5 +227,57 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
   setCurrentBook: (book) => {
     set({ currentBook: book });
+  },
+
+  /* ── Folder actions ──────────────────────────────── */
+
+  loadFolders: async () => {
+    const folders = await fetchFolders();
+    set({ folders });
+  },
+
+  createFolder: async (name, color = "#818cf8") => {
+    const maxOrder = await getOne<{ m: number }>(
+      "SELECT COALESCE(MAX(sort_order), 0) as m FROM folders"
+    );
+    const result = await execute(
+      "INSERT INTO folders (name, color, sort_order, created_at) VALUES (?, ?, ?, ?)",
+      [name.trim(), color, (maxOrder?.m ?? 0) + 1, now()]
+    );
+    const folder: Folder = {
+      id: result.lastInsertRowId,
+      name: name.trim(),
+      color,
+      sort_order: (maxOrder?.m ?? 0) + 1,
+      created_at: now(),
+    };
+    await get().loadFolders();
+    return folder;
+  },
+
+  renameFolder: async (folderId, name) => {
+    await execute("UPDATE folders SET name = ? WHERE id = ?", [name.trim(), folderId]);
+    await get().loadFolders();
+  },
+
+  deleteFolder: async (folderId) => {
+    await execute("DELETE FROM folders WHERE id = ?", [folderId]);
+    await get().loadFolders();
+  },
+
+  addBookToFolder: async (folderId, bookId) => {
+    await execute(
+      "INSERT OR IGNORE INTO folder_books (folder_id, book_id, added_at) VALUES (?, ?, ?)",
+      [folderId, bookId, now()]
+    );
+    await get().loadFolders();
+  },
+
+  removeBookFromFolder: async (folderId, bookId) => {
+    await execute(
+      "DELETE FROM folder_books WHERE folder_id = ? AND book_id = ?",
+      [folderId, bookId]
+    );
+    await get().loadFolders();
   },
 }));
