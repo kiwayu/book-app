@@ -1,8 +1,13 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { View, Text, Pressable, SafeAreaView } from "react-native";
+import { View, Text, Pressable, SafeAreaView, AppState } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { buildReaderHtml, type ReaderTheme } from "./readerHtml";
-import { execute, getOne } from "@/db/database";
+import {
+  startSession,
+  endSession,
+  updateProgress,
+  getProgress,
+} from "@/services/readingTracker";
 
 interface TocItem {
   id: string;
@@ -15,12 +20,6 @@ interface ReaderScreenProps {
   bookId: number;
   epubUrl: string;
   onClose?: () => void;
-}
-
-interface SavedProgress {
-  current_page: number;
-  percentage: number;
-  cfi: string | null;
 }
 
 const FONT_SIZES = [14, 16, 18, 20, 22, 24];
@@ -51,8 +50,8 @@ export default function ReaderScreen({
   const webViewRef = useRef<WebView>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionIdRef = useRef<number | null>(null);
-  const sessionStartRef = useRef<string>(new Date().toISOString());
   const startPageRef = useRef<number>(0);
+  const latestPageRef = useRef<number>(0);
 
   const [theme, setTheme] = useState<ReaderTheme>("dark");
   const [fontSizeIndex, setFontSizeIndex] = useState(1);
@@ -66,65 +65,70 @@ export default function ReaderScreen({
   const [savedCfi, setSavedCfi] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
 
+  // Load saved progress to restore position
   useEffect(() => {
-    (async () => {
-      const row = await getOne<SavedProgress>(
-        "SELECT current_page, percentage, cfi FROM reading_progress WHERE book_id = ?",
-        [bookId]
-      );
+    getProgress(bookId).then((row) => {
       if (row) {
         setSavedCfi(row.cfi);
         setCurrentPage(row.current_page);
         setPercentage(row.percentage);
+        startPageRef.current = row.current_page;
+        latestPageRef.current = row.current_page;
       }
-    })();
+    });
   }, [bookId]);
 
+  const finishSession = useCallback(() => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+
+    const pagesRead = Math.max(0, latestPageRef.current - startPageRef.current);
+    endSession(sid, pagesRead);
+    sessionIdRef.current = null;
+  }, []);
+
+  // Start session on mount, end on unmount
   useEffect(() => {
-    (async () => {
-      const result = await execute(
-        "INSERT INTO reading_sessions (book_id, start_time, pages_read) VALUES (?, ?, 0)",
-        [bookId, sessionStartRef.current]
-      );
-      sessionIdRef.current = result.lastInsertRowId;
-    })();
+    startSession(bookId).then((id) => {
+      sessionIdRef.current = id;
+    });
 
     return () => {
-      const sid = sessionIdRef.current;
-      if (sid) {
-        execute(
-          "UPDATE reading_sessions SET end_time = ? WHERE id = ?",
-          [new Date().toISOString(), sid]
-        );
-      }
+      finishSession();
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [bookId]);
+  }, [bookId, finishSession]);
 
-  const saveProgress = useCallback(
+  // End session when app goes to background, start new one when returning
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "background" || state === "inactive") {
+        finishSession();
+      } else if (state === "active" && !sessionIdRef.current) {
+        startPageRef.current = latestPageRef.current;
+        startSession(bookId).then((id) => {
+          sessionIdRef.current = id;
+        });
+      }
+    });
+    return () => sub.remove();
+  }, [bookId, finishSession]);
+
+  const saveProgressDebounced = useCallback(
     (cfi: string, pct: number, page: number) => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
-      saveTimerRef.current = setTimeout(async () => {
-        const now = new Date().toISOString();
+      latestPageRef.current = page;
 
-        await execute(
-          `INSERT INTO reading_progress (book_id, current_page, percentage, last_opened, cfi)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(book_id) DO UPDATE SET
-             current_page = excluded.current_page,
-             percentage   = excluded.percentage,
-             last_opened  = excluded.last_opened,
-             cfi          = excluded.cfi`,
-          [bookId, page, pct, now, cfi]
-        );
+      saveTimerRef.current = setTimeout(async () => {
+        await updateProgress(bookId, page, pct, cfi);
 
         const pagesRead = Math.max(0, page - startPageRef.current);
         if (sessionIdRef.current && pagesRead > 0) {
-          await execute(
-            "UPDATE reading_sessions SET pages_read = ?, end_time = ? WHERE id = ?",
-            [pagesRead, now, sessionIdRef.current]
-          );
+          await endSession(sessionIdRef.current, pagesRead);
+          const newId = await startSession(bookId);
+          sessionIdRef.current = newId;
+          startPageRef.current = page;
         }
       }, SAVE_DEBOUNCE_MS);
     },
@@ -162,7 +166,7 @@ export default function ReaderScreen({
               startPageRef.current = msg.currentPage;
             }
             if (msg.cfi) {
-              saveProgress(msg.cfi, msg.percentage ?? 0, msg.currentPage ?? 0);
+              saveProgressDebounced(msg.cfi, msg.percentage ?? 0, msg.currentPage ?? 0);
             }
             break;
 
@@ -174,7 +178,7 @@ export default function ReaderScreen({
         /* malformed message */
       }
     },
-    [saveProgress]
+    [saveProgressDebounced]
   );
 
   const nextPage = useCallback(

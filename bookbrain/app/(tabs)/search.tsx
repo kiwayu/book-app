@@ -1,10 +1,10 @@
 import { SafeAreaView } from 'react-native';
-import LibraryScreen from '@/features/library/LibraryScreen';
+import SearchScreen from '@/features/books/SearchScreen';
 
-export default function LibraryTab() {
+export default function SearchTab() {
   return (
     <SafeAreaView className="flex-1 bg-neutral-950">
-      <LibraryScreen />
+      <SearchScreen />
     </SafeAreaView>
   );
 }

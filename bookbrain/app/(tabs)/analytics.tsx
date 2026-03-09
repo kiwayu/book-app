@@ -1,10 +1,10 @@
 import { SafeAreaView } from 'react-native';
-import LibraryScreen from '@/features/library/LibraryScreen';
+import AnalyticsScreen from '@/features/analytics/AnalyticsScreen';
 
-export default function LibraryTab() {
+export default function AnalyticsTab() {
   return (
     <SafeAreaView className="flex-1 bg-neutral-950">
-      <LibraryScreen />
+      <AnalyticsScreen />
     </SafeAreaView>
   );
 }
