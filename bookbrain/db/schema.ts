@@ -39,7 +39,8 @@ const CREATE_READING_PROGRESS = `
     book_id      INTEGER PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
     current_page INTEGER NOT NULL DEFAULT 0,
     percentage   REAL    NOT NULL DEFAULT 0 CHECK (percentage >= 0 AND percentage <= 100),
-    last_opened  TEXT    NOT NULL
+    last_opened  TEXT    NOT NULL,
+    cfi          TEXT
   );
 `;
 
