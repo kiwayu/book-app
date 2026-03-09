@@ -29,9 +29,9 @@ const VARIANTS: Record<Variant, ViewStyle> = {
     ...t.shadow.medium,
   },
   subtle: {
-    backgroundColor: "rgba(255,255,255,0.02)",
+    backgroundColor: "rgba(255,255,255,0.03)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.04)",
+    borderColor: "rgba(255,255,255,0.06)",
   },
 };
 

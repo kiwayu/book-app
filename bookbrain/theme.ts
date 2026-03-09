@@ -4,87 +4,102 @@ import { Platform, type TextStyle } from "react-native";
    Design Tokens — BookBrain
    ──────────────────────────────────────────────────────
    8px base grid · minimal · premium · calm
+   Dark surfaces with subtle blue-slate depth layering
    ══════════════════════════════════════════════════════ */
 
 /* ── Color palette ─────────────────────────────────── */
 
 const color = {
+  /*
+   * Surface hierarchy — each layer reads as distinctly
+   * elevated. Subtle blue-grey tint over neutral black
+   * gives an Apple/macOS-style premium depth.
+   *
+   *  base      → screen background (deepest)
+   *  raised    → cards, rows
+   *  overlay   → modals, popovers
+   *  elevated  → floating menus, tooltips
+   */
   bg: {
-    base: "#0a0a0a",
-    raised: "#141414",
-    overlay: "#1c1c1e",
-    elevated: "#222224",
+    base:     "#0c0c10",   // deep blue-slate, not pure black
+    raised:   "#13131a",   // dark card surface
+    overlay:  "#1a1a24",   // elevated panel
+    elevated: "#21212e",   // highest floating surface
   },
 
   glass: {
-    bg: "rgba(255,255,255,0.04)",
-    bgHover: "rgba(255,255,255,0.06)",
-    border: "rgba(255,255,255,0.07)",
-    borderStrong: "rgba(255,255,255,0.10)",
+    bg:           "rgba(255,255,255,0.05)",
+    bgHover:      "rgba(255,255,255,0.08)",
+    border:       "rgba(255,255,255,0.09)",
+    borderStrong: "rgba(255,255,255,0.13)",
   },
 
   text: {
-    primary: "#f0f0f0",
-    secondary: "#a3a3a3",
-    tertiary: "#737373",
-    muted: "#525252",
-    faint: "#3a3a3a",
-    inverse: "#0a0a0a",
+    primary:   "#f2f2f7",  // iOS system white — warm, not harsh
+    secondary: "#aeaeb2",  // iOS gray 2
+    tertiary:  "#787880",  // iOS gray 3
+    muted:     "#545458",  // subdued label
+    faint:     "#3a3a40",  // hairline dividers, placeholders
+    inverse:   "#0c0c10",
   },
 
   accent: {
-    base: "#6366f1",
-    strong: "#4f46e5",
-    light: "#818cf8",
-    lighter: "#a5b4fc",
-    lightest: "#c7d2fe",
-    bg: "rgba(99,102,241,0.12)",
-    bgStrong: "rgba(99,102,241,0.25)",
-    border: "rgba(99,102,241,0.30)",
-    borderStrong: "rgba(99,102,241,0.45)",
+    base:        "#6366f1",
+    strong:      "#4f46e5",
+    light:       "#818cf8",
+    lighter:     "#a5b4fc",
+    lightest:    "#c7d2fe",
+    bg:          "rgba(99,102,241,0.12)",
+    bgStrong:    "rgba(99,102,241,0.25)",
+    border:      "rgba(99,102,241,0.30)",
+    borderStrong:"rgba(99,102,241,0.45)",
   },
 
   success: {
-    base: "#10b981",
-    light: "#34d399",
+    base:    "#10b981",
+    light:   "#34d399",
     lighter: "#6ee7b7",
-    bg: "rgba(16,185,129,0.15)",
-    border: "rgba(16,185,129,0.25)",
+    bg:      "rgba(16,185,129,0.15)",
+    border:  "rgba(16,185,129,0.25)",
   },
 
   warning: {
-    base: "#f59e0b",
+    base:  "#f59e0b",
     light: "#fbbf24",
-    bg: "rgba(251,191,36,0.12)",
+    bg:    "rgba(251,191,36,0.12)",
   },
 
   error: {
-    base: "#ef4444",
-    light: "#fca5a5",
-    bg: "rgba(239,68,68,0.10)",
+    base:   "#ef4444",
+    light:  "#fca5a5",
+    bg:     "rgba(239,68,68,0.10)",
     border: "rgba(239,68,68,0.18)",
   },
 
+  /*
+   * Borders — all carry a faint blue-grey tint for
+   * cohesion with the surface palette.
+   */
   border: {
-    subtle: "#1c1c1e",
-    default: "#262626",
-    strong: "#333333",
-    accent: "#2c2c2e",
+    subtle:  "#1c1c28",
+    default: "#252533",
+    strong:  "#323248",
+    accent:  "#2d2d42",
   },
 } as const;
 
 /* ── Spacing (8px base grid) ──────────────────────── */
 
 const space = {
-  _0: 0,
-  _1: 4,
-  _2: 8,
-  _3: 12,
-  _4: 16,
-  _5: 20,
-  _6: 24,
-  _7: 28,
-  _8: 32,
+  _0:  0,
+  _1:  4,
+  _2:  8,
+  _3:  12,
+  _4:  16,
+  _5:  20,
+  _6:  24,
+  _7:  28,
+  _8:  32,
   _10: 40,
   _12: 48,
   _16: 64,
@@ -93,16 +108,16 @@ const space = {
 /* ── Border radius ────────────────────────────────── */
 
 const radius = {
-  xs: 4,
-  sm: 6,
-  md: 8,
-  lg: 10,
-  xl: 12,
+  xs:   4,
+  sm:   6,
+  md:   8,
+  lg:   10,
+  xl:   12,
   "2xl": 14,
   "3xl": 16,
   "4xl": 20,
   "5xl": 24,
-  pill: 999,
+  pill:  999,
 } as const;
 
 /* ── Typography ───────────────────────────────────── */
@@ -118,6 +133,7 @@ const font = {
   title: {
     fontSize: 18,
     fontWeight: "800",
+    letterSpacing: -0.2,
     color: color.text.primary,
   } as TextStyle,
 
@@ -161,16 +177,21 @@ const font = {
 } as const;
 
 /* ── Shadows ──────────────────────────────────────── */
+/*
+ * Shadow color uses a deep blue-slate (#05050e) instead
+ * of pure black — creates softer, warmer depth that
+ * reads as layered rather than flat-with-outline.
+ */
 
 const shadow = {
   none: {},
 
   soft: Platform.select({
     ios: {
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.15,
-      shadowRadius: 6,
+      shadowColor:   "#05050e",
+      shadowOffset:  { width: 0, height: 2 },
+      shadowOpacity: 0.20,
+      shadowRadius:  8,
     },
     android: { elevation: 3 },
     default: {},
@@ -178,10 +199,10 @@ const shadow = {
 
   medium: Platform.select({
     ios: {
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.25,
-      shadowRadius: 12,
+      shadowColor:   "#05050e",
+      shadowOffset:  { width: 0, height: 4 },
+      shadowOpacity: 0.30,
+      shadowRadius:  14,
     },
     android: { elevation: 6 },
     default: {},
@@ -189,10 +210,10 @@ const shadow = {
 
   heavy: Platform.select({
     ios: {
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.35,
-      shadowRadius: 16,
+      shadowColor:   "#05050e",
+      shadowOffset:  { width: 0, height: 8 },
+      shadowOpacity: 0.40,
+      shadowRadius:  20,
     },
     android: { elevation: 10 },
     default: {},
@@ -200,10 +221,10 @@ const shadow = {
 
   top: Platform.select({
     ios: {
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: -4 },
-      shadowOpacity: 0.30,
-      shadowRadius: 16,
+      shadowColor:   "#05050e",
+      shadowOffset:  { width: 0, height: -4 },
+      shadowOpacity: 0.35,
+      shadowRadius:  20,
     },
     android: { elevation: 10 },
     default: {},
@@ -244,10 +265,10 @@ const glass = {
 /* ── Animation timing ─────────────────────────────── */
 
 const anim = {
-  fast: 80,
-  normal: 150,
-  slow: 250,
-  spring: { friction: 6, tension: 40 },
+  fast:        80,
+  normal:      150,
+  slow:        250,
+  spring:      { friction: 6, tension: 40 },
   microBounce: { toValue: 0.96, duration: 60 },
 } as const;
 
@@ -255,8 +276,8 @@ const anim = {
 
 const press = {
   opacity: { opacity: 0.82 },
-  scale: { opacity: 0.82, transform: [{ scale: 0.985 }] },
-  subtle: { opacity: 0.92 },
+  scale:   { opacity: 0.82, transform: [{ scale: 0.985 }] },
+  subtle:  { opacity: 0.92 },
 } as const;
 
 /* ── Exports ──────────────────────────────────────── */

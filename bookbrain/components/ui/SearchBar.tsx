@@ -1,5 +1,6 @@
 import { View, Text, TextInput, Pressable, StyleSheet } from "react-native";
 import { t } from "@/theme";
+import { IconSymbol } from "@/components/ui/icon-symbol";
 
 interface SearchBarProps {
   value: string;
@@ -16,7 +17,7 @@ export function SearchBar({
 }: SearchBarProps) {
   return (
     <View style={sb.root}>
-      <Text style={sb.icon}>🔍</Text>
+      <IconSymbol name="magnifyingglass" size={14} color={t.color.text.muted} style={sb.icon} />
       <TextInput
         style={sb.input}
         placeholder={placeholder}
@@ -48,7 +49,6 @@ const sb = StyleSheet.create({
     height: 42,
   },
   icon: {
-    fontSize: 13,
     marginRight: t.space._2,
   },
   input: {

@@ -79,9 +79,13 @@ export function SegmentedControl({ segments, activeKey, onChange }: SegmentedCon
 const sc = StyleSheet.create({
   container: {
     marginTop: t.space._3,
+    paddingBottom: t.space._2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: t.color.border.subtle,
   },
   scroll: {
     paddingHorizontal: t.space._4,
+    paddingBottom: t.space._1,
     gap: t.space._2 - 2,
   },
 

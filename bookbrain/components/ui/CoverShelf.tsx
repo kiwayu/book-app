@@ -65,14 +65,24 @@ interface CoverShelfProps {
   progressMap?: Map<number, BookCardProgress>;
   onPress: (id: number) => void;
   onLongPress?: (id: number) => void;
+  /** Elevates visual treatment — use for the primary/hero shelf */
+  accent?: boolean;
+  onSeeAll?: () => void;
 }
 
-export function CoverShelf({ title, data, progressMap, onPress, onLongPress }: CoverShelfProps) {
+export function CoverShelf({ title, data, progressMap, onPress, onLongPress, accent, onSeeAll }: CoverShelfProps) {
   if (data.length === 0) return null;
 
   return (
-    <View style={cs.container}>
-      <Text style={cs.heading}>{title}</Text>
+    <View style={[cs.container, accent && cs.containerAccent]}>
+      <View style={cs.headingRow}>
+        <Text style={[cs.heading, accent && cs.headingAccent]}>{title}</Text>
+        {onSeeAll && (
+          <Pressable onPress={onSeeAll} hitSlop={8}>
+            <Text style={cs.seeAllText}>See all</Text>
+          </Pressable>
+        )}
+      </View>
       <FlatList
         data={data}
         keyExtractor={(item) => String(item.id)}
@@ -96,10 +106,36 @@ export function CoverShelf({ title, data, progressMap, onPress, onLongPress }: C
 
 const cs = StyleSheet.create({
   container: { marginTop: t.space._3, marginBottom: t.space._1 },
-  heading: {
-    ...t.font.headline,
+  containerAccent: {
+    backgroundColor: "rgba(99,102,241,0.04)",
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "rgba(99,102,241,0.10)",
+    paddingTop: t.space._3,
+    paddingBottom: t.space._1,
+    marginTop: t.space._2,
+  },
+
+  headingRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-between" as const,
     paddingHorizontal: t.space._5,
     marginBottom: t.space._3,
+  },
+  heading: {
+    ...t.font.headline,
+  },
+  headingAccent: {
+    fontSize: 17,
+    fontWeight: "800" as const,
+    letterSpacing: -0.3,
+    color: t.color.text.primary,
+  },
+  seeAllText: {
+    color: t.color.accent.base,
+    fontSize: 13,
+    fontWeight: "600" as const,
   },
   list: { paddingHorizontal: t.space._4 },
   item: { width: 110, marginRight: t.space._3, alignItems: "flex-start" as const },

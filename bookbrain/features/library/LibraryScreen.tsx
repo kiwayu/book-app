@@ -29,6 +29,7 @@ import { SegmentedControl, type Segment } from "@/components/ui/SegmentedControl
 import { AlphabetIndex } from "@/components/ui/AlphabetIndex";
 import { SearchBar } from "@/components/ui/SearchBar";
 import { SectionHeader } from "@/components/ui/SectionHeader";
+import { IconSymbol } from "@/components/ui/icon-symbol";
 import {
   FilterSheet,
   type LibraryFilters,
@@ -512,12 +513,23 @@ export default function LibraryScreen() {
             style={[ctrl.filterBtn, activeFilterCount > 0 && ctrl.filterBtnActive]}
             onPress={() => setShowFilterModal(true)}
           >
-            <Text style={ctrl.filterBtnIcon}>☰</Text>
+            <IconSymbol
+              name="gearshape.fill"
+              size={16}
+              color={activeFilterCount > 0 ? t.color.accent.lighter : t.color.text.tertiary}
+            />
             {activeFilterCount > 0 && (
               <View style={ctrl.filterBadge}><Text style={ctrl.filterBadgeText}>{activeFilterCount}</Text></View>
             )}
           </Pressable>
         </View>
+
+        {/* ── Segmented Control ──────────────────────── */}
+        <SegmentedControl segments={segments} activeKey={activeTab} onChange={(k) => {
+          setActiveTab(k as TabKey);
+          letterPositions.current.clear();
+          scrollRef.current?.scrollTo({ y: 0, animated: false });
+        }} />
 
         {/* ── Sort Strip ─────────────────────────────── */}
         <SortStrip sortKey={sortKey} sortDir={sortDir}
@@ -534,13 +546,6 @@ export default function LibraryScreen() {
             </Pressable>
           </View>
         )}
-
-        {/* ── Segmented Control ──────────────────────── */}
-        <SegmentedControl segments={segments} activeKey={activeTab} onChange={(k) => {
-          setActiveTab(k as TabKey);
-          letterPositions.current.clear();
-          scrollRef.current?.scrollTo({ y: 0, animated: false });
-        }} />
 
         {/* ── Loading ────────────────────────────────── */}
         {isLoading && books.length === 0 && (
@@ -559,9 +564,9 @@ export default function LibraryScreen() {
           </View>
         ) : activeTab === "all" ? (
           <>
-            <CoverShelf title="Recently Read" data={recentShelfBooks} progressMap={progressMap}
-              onPress={openDetail} onLongPress={openDetail} />
             <CoverShelf title="Currently Reading" data={currentlyReading} progressMap={progressMap}
+              onPress={openDetail} onLongPress={openDetail} accent />
+            <CoverShelf title="Recently Read" data={recentShelfBooks} progressMap={progressMap}
               onPress={openDetail} onLongPress={openDetail} />
             {seriesGroups.map((sg) => (
               <CoverShelf key={sg.name} title={sg.name} data={sg.books} progressMap={progressMap}
@@ -685,7 +690,7 @@ const s = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "center",
     marginHorizontal: t.space._5, marginTop: t.space._4, paddingVertical: t.space._4 - 2,
     borderRadius: t.radius.xl, borderWidth: 1, borderColor: t.color.border.default,
-    borderStyle: "dashed", backgroundColor: "rgba(20,20,20,0.5)",
+    borderStyle: "dashed", backgroundColor: t.color.glass.bg,
   },
   newFolderPlus: { color: t.color.accent.light, fontSize: 20, marginRight: t.space._2 },
   newFolderLabel: { ...t.font.caption, color: t.color.text.secondary },
@@ -721,7 +726,6 @@ const ctrl = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   filterBtnActive: { borderColor: t.color.accent.strong, backgroundColor: t.color.accent.bg },
-  filterBtnIcon: { color: t.color.text.tertiary, fontSize: 16 },
   filterBadge: {
     position: "absolute", top: -4, right: -4,
     backgroundColor: t.color.accent.strong, borderRadius: t.radius.md,
@@ -743,7 +747,7 @@ const srt = StyleSheet.create({
   pill: {
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: t.space._3, paddingVertical: 5, borderRadius: t.radius.md,
-    backgroundColor: "rgba(255,255,255,0.03)", borderWidth: 1, borderColor: "rgba(255,255,255,0.05)",
+    backgroundColor: t.color.glass.bg, borderWidth: 1, borderColor: t.color.glass.border,
   },
   pillActive: { backgroundColor: t.color.accent.bg, borderColor: t.color.accent.border },
   pillLabel: { color: t.color.text.muted, fontSize: 12, fontWeight: "600" },
@@ -752,7 +756,7 @@ const srt = StyleSheet.create({
 });
 
 const modal = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center", padding: t.space._8 },
+  overlay: { flex: 1, backgroundColor: "rgba(5,5,14,0.82)", justifyContent: "center", alignItems: "center", padding: t.space._8 },
   card: {
     width: "100%", maxWidth: 360, backgroundColor: t.color.bg.overlay,
     borderRadius: t.radius["3xl"], padding: t.space._6, borderWidth: 1, borderColor: t.color.border.accent,
