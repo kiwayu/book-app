@@ -4,7 +4,7 @@ import { Platform, type TextStyle } from "react-native";
    Design Tokens — BookBrain
    ──────────────────────────────────────────────────────
    8px base grid · minimal · premium · calm
-   Dark surfaces with subtle blue-slate depth layering
+   Light surfaces with soft blue layering — reading-first
    ══════════════════════════════════════════════════════ */
 
 /* ── Color palette ─────────────────────────────────── */
@@ -12,79 +12,88 @@ import { Platform, type TextStyle } from "react-native";
 const color = {
   /*
    * Surface hierarchy — each layer reads as distinctly
-   * elevated. Subtle blue-grey tint over neutral black
-   * gives an Apple/macOS-style premium depth.
+   * elevated. Soft blue-white tint inspired by the
+   * palette: #BDDDFC · #88BDF2 · #6A89A7 · #384959
    *
-   *  base      → screen background (deepest)
+   *  base      → screen background (lightest)
    *  raised    → cards, rows
    *  overlay   → modals, popovers
    *  elevated  → floating menus, tooltips
    */
   bg: {
-    base:     "#0c0c10",   // deep blue-slate, not pure black
-    raised:   "#13131a",   // dark card surface
-    overlay:  "#1a1a24",   // elevated panel
-    elevated: "#21212e",   // highest floating surface
-  },
-
-  glass: {
-    bg:           "rgba(255,255,255,0.05)",
-    bgHover:      "rgba(255,255,255,0.08)",
-    border:       "rgba(255,255,255,0.09)",
-    borderStrong: "rgba(255,255,255,0.13)",
-  },
-
-  text: {
-    primary:   "#f2f2f7",  // iOS system white — warm, not harsh
-    secondary: "#aeaeb2",  // iOS gray 2
-    tertiary:  "#787880",  // iOS gray 3
-    muted:     "#545458",  // subdued label
-    faint:     "#3a3a40",  // hairline dividers, placeholders
-    inverse:   "#0c0c10",
-  },
-
-  accent: {
-    base:        "#6366f1",
-    strong:      "#4f46e5",
-    light:       "#818cf8",
-    lighter:     "#a5b4fc",
-    lightest:    "#c7d2fe",
-    bg:          "rgba(99,102,241,0.12)",
-    bgStrong:    "rgba(99,102,241,0.25)",
-    border:      "rgba(99,102,241,0.30)",
-    borderStrong:"rgba(99,102,241,0.45)",
-  },
-
-  success: {
-    base:    "#10b981",
-    light:   "#34d399",
-    lighter: "#6ee7b7",
-    bg:      "rgba(16,185,129,0.15)",
-    border:  "rgba(16,185,129,0.25)",
-  },
-
-  warning: {
-    base:  "#f59e0b",
-    light: "#fbbf24",
-    bg:    "rgba(251,191,36,0.12)",
-  },
-
-  error: {
-    base:   "#ef4444",
-    light:  "#fca5a5",
-    bg:     "rgba(239,68,68,0.10)",
-    border: "rgba(239,68,68,0.18)",
+    base:     "#EEF5FF",   // sky-white — barely-there blue tint
+    raised:   "#E0EFFB",   // card / row surface
+    overlay:  "#D3E8F8",   // elevated panel (toward #BDDDFC)
+    elevated: "#C5DFFA",   // highest floating — pure #BDDDFC territory
   },
 
   /*
-   * Borders — all carry a faint blue-grey tint for
-   * cohesion with the surface palette.
+   * Glass — frosted light surfaces with blue border glow
+   * (#88BDF2 tinted borders create the "lit edge" effect)
+   */
+  glass: {
+    bg:           "rgba(255,255,255,0.58)",
+    bgHover:      "rgba(255,255,255,0.82)",
+    border:       "rgba(136,189,242,0.28)",   // #88BDF2
+    borderStrong: "rgba(136,189,242,0.50)",
+  },
+
+  text: {
+    primary:   "#1e3548",  // deep navy — max contrast on light bg
+    secondary: "#384959",  // palette dark blue
+    tertiary:  "#6A89A7",  // palette mid-slate
+    muted:     "#8dabbf",  // lighter slate
+    faint:     "#b0ccde",  // hairline dividers, placeholders
+    inverse:   "#EEF5FF",  // light bg as inverse (text on dark)
+  },
+
+  accent: {
+    /*
+     * #88BDF2 is the raw palette accent — used as "light"
+     * tone. base/strong are deepened for WCAG contrast
+     * on the light backgrounds.
+     */
+    base:         "#5a9dd4",
+    strong:       "#3f82bc",
+    light:        "#88BDF2",
+    lighter:      "#a8d4f8",
+    lightest:     "#c8e4fc",
+    bg:           "rgba(136,189,242,0.12)",
+    bgStrong:     "rgba(136,189,242,0.22)",
+    border:       "rgba(90,157,212,0.30)",
+    borderStrong: "rgba(90,157,212,0.52)",
+  },
+
+  success: {
+    base:    "#0ea369",
+    light:   "#22c98a",
+    lighter: "#5dd9a8",
+    bg:      "rgba(14,163,105,0.10)",
+    border:  "rgba(14,163,105,0.22)",
+  },
+
+  warning: {
+    base:  "#d97706",
+    light: "#f59e0b",
+    bg:    "rgba(217,119,6,0.10)",
+  },
+
+  error: {
+    base:   "#dc2626",
+    light:  "#f87171",
+    bg:     "rgba(220,38,38,0.08)",
+    border: "rgba(220,38,38,0.16)",
+  },
+
+  /*
+   * Borders — all carry a soft blue-grey tint
+   * that coheres with the surface palette.
    */
   border: {
-    subtle:  "#1c1c28",
-    default: "#252533",
-    strong:  "#323248",
-    accent:  "#2d2d42",
+    subtle:  "#DDEAF5",
+    default: "#C5DCED",
+    strong:  "#A5CADA",
+    accent:  "#B0CDE8",
   },
 } as const;
 
@@ -178,9 +187,11 @@ const font = {
 
 /* ── Shadows ──────────────────────────────────────── */
 /*
- * Shadow color uses a deep blue-slate (#05050e) instead
- * of pure black — creates softer, warmer depth that
- * reads as layered rather than flat-with-outline.
+ * Shadow color uses deep blue-slate (#2c4a62) instead
+ * of black — on light surfaces this reads as a natural
+ * blue-tinted depth rather than a harsh dark edge.
+ * Opacities are lower than dark-mode equivalents since
+ * the contrast is already supplied by the bg layers.
  */
 
 const shadow = {
@@ -188,9 +199,9 @@ const shadow = {
 
   soft: Platform.select({
     ios: {
-      shadowColor:   "#05050e",
+      shadowColor:   "#2c4a62",
       shadowOffset:  { width: 0, height: 2 },
-      shadowOpacity: 0.20,
+      shadowOpacity: 0.10,
       shadowRadius:  8,
     },
     android: { elevation: 3 },
@@ -199,9 +210,9 @@ const shadow = {
 
   medium: Platform.select({
     ios: {
-      shadowColor:   "#05050e",
+      shadowColor:   "#2c4a62",
       shadowOffset:  { width: 0, height: 4 },
-      shadowOpacity: 0.30,
+      shadowOpacity: 0.14,
       shadowRadius:  14,
     },
     android: { elevation: 6 },
@@ -210,9 +221,9 @@ const shadow = {
 
   heavy: Platform.select({
     ios: {
-      shadowColor:   "#05050e",
+      shadowColor:   "#2c4a62",
       shadowOffset:  { width: 0, height: 8 },
-      shadowOpacity: 0.40,
+      shadowOpacity: 0.20,
       shadowRadius:  20,
     },
     android: { elevation: 10 },
@@ -221,9 +232,9 @@ const shadow = {
 
   top: Platform.select({
     ios: {
-      shadowColor:   "#05050e",
+      shadowColor:   "#2c4a62",
       shadowOffset:  { width: 0, height: -4 },
-      shadowOpacity: 0.35,
+      shadowOpacity: 0.14,
       shadowRadius:  20,
     },
     android: { elevation: 10 },

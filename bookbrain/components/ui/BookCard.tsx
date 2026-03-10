@@ -174,9 +174,10 @@ const g = StyleSheet.create({
     ...t.glass.cardElevated,
     borderRadius: t.radius["4xl"],
     padding: t.space._4 - 2,
+    marginHorizontal: t.space._4,
     marginBottom: t.space._3,
   },
-  pressed: t.press.subtle,
+  pressed: t.press.scale,
 
   row: { flexDirection: "row" },
 

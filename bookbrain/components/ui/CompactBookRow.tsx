@@ -156,6 +156,8 @@ export function CompactBookRow(props: CompactBookRowProps) {
           </View>
         )}
       </View>
+
+      <Text style={c.chevron}>›</Text>
     </Pressable>
   );
 
@@ -184,18 +186,18 @@ const c = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginHorizontal: t.space._4,
-    marginVertical: 5,
+    marginVertical: t.space._2 - 1,
     paddingHorizontal: t.space._3,
-    paddingVertical: t.space._3,
+    paddingVertical: 14,
     borderRadius: t.radius["3xl"],
     ...t.glass.card,
   },
   pressed: t.press.scale,
 
   cover: {
-    width: 48,
-    height: 72,
-    borderRadius: t.radius.lg,
+    width: 54,
+    height: 80,
+    borderRadius: t.radius.xl,
     backgroundColor: t.color.glass.bg,
   },
   coverEmpty: {
@@ -206,7 +208,8 @@ const c = StyleSheet.create({
   },
   coverEmoji: { fontSize: 20 },
 
-  body: { flex: 1, marginLeft: t.space._3, justifyContent: "center" as const },
+  body: { flex: 1, marginLeft: t.space._3, marginRight: t.space._2, justifyContent: "center" as const },
+  chevron: { color: t.color.text.faint, fontSize: 20, fontWeight: "300" as const, marginRight: 2 },
 
   titleRow: { flexDirection: "row" as const, alignItems: "baseline" as const },
   title: {

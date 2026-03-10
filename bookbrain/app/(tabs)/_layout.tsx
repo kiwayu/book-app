@@ -9,11 +9,11 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarButton: HapticTab,
-        tabBarActiveTintColor: '#818cf8',
-        tabBarInactiveTintColor: '#787880',
+        tabBarActiveTintColor: '#5a9dd4',
+        tabBarInactiveTintColor: '#8dabbf',
         tabBarStyle: {
-          backgroundColor: '#0c0c10',
-          borderTopColor: 'rgba(255,255,255,0.08)',
+          backgroundColor: '#EEF5FF',
+          borderTopColor: 'rgba(136,189,242,0.22)',
           borderTopWidth: 0.5,
         },
       }}

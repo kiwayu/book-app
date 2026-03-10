@@ -5,10 +5,12 @@ import {
   ScrollView,
   RefreshControl,
   ActivityIndicator,
+  StyleSheet,
   useWindowDimensions,
 } from "react-native";
 import { CartesianChart, Bar } from "victory-native";
 import { PolarChart, Pie } from "victory-native";
+import { t } from "@/theme";
 import {
   booksPerYear,
   pagesPerYear,
@@ -19,20 +21,18 @@ import {
   type StreakResult,
 } from "@/services/analytics";
 
-/* ── reusable card wrapper ───────────────────────── */
+/* ── Card wrapper ────────────────────────────────────── */
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <View className="bg-neutral-900 rounded-2xl p-4 mb-4">
-      <Text className="text-neutral-400 text-xs font-medium uppercase tracking-wider mb-3">
-        {title}
-      </Text>
+    <View style={s.card}>
+      <Text style={s.cardLabel}>{title}</Text>
       {children}
     </View>
   );
 }
 
-/* ── stat card for single numbers ────────────────── */
+/* ── Stat card ───────────────────────────────────────── */
 
 function StatCard({
   title,
@@ -45,15 +45,13 @@ function StatCard({
 }) {
   return (
     <Card title={title}>
-      <Text className="text-white text-4xl font-bold">{value}</Text>
-      {subtitle ? (
-        <Text className="text-neutral-500 text-sm mt-1">{subtitle}</Text>
-      ) : null}
+      <Text style={s.statValue}>{value}</Text>
+      {subtitle ? <Text style={s.statSub}>{subtitle}</Text> : null}
     </Card>
   );
 }
 
-/* ── bar chart card ──────────────────────────────── */
+/* ── Bar chart card ──────────────────────────────────── */
 
 function BarChartCard({
   title,
@@ -70,9 +68,7 @@ function BarChartCard({
   if (data.length === 0) {
     return (
       <Card title={title}>
-        <Text className="text-neutral-500 text-sm py-6 text-center">
-          No data yet
-        </Text>
+        <Text style={s.emptyText}>No data yet</Text>
       </Card>
     );
   }
@@ -100,13 +96,11 @@ function BarChartCard({
         </CartesianChart>
       </View>
 
-      <View className="flex-row flex-wrap mt-3 gap-x-4 gap-y-1">
+      <View style={s.legendRow}>
         {data.map((d) => (
-          <Text key={d.label} className="text-neutral-400 text-xs">
+          <Text key={d.label} style={s.legendItem}>
             {d.label}:{" "}
-            <Text className="text-white font-semibold">
-              {d.value.toLocaleString()}
-            </Text>
+            <Text style={s.legendValue}>{d.value.toLocaleString()}</Text>
           </Text>
         ))}
       </View>
@@ -114,7 +108,7 @@ function BarChartCard({
   );
 }
 
-/* ── pie chart for DNF ratio ─────────────────────── */
+/* ── Pie chart — completion rate ─────────────────────── */
 
 function DnfPieCard({
   dnf,
@@ -130,21 +124,19 @@ function DnfPieCard({
   if (total === 0) {
     return (
       <Card title="Completion Rate">
-        <Text className="text-neutral-500 text-sm py-6 text-center">
-          No data yet
-        </Text>
+        <Text style={s.emptyText}>No data yet</Text>
       </Card>
     );
   }
 
   const pieData = [
-    { name: "Finished", value: finished, color: "#6366f1" },
-    { name: "DNF", value: dnf, color: "#ef4444" },
+    { name: "Finished", value: finished, color: t.color.accent.base },
+    { name: "DNF",      value: dnf,      color: "#ef4444" },
   ];
 
   return (
     <Card title="Completion Rate">
-      <View className="items-center" style={{ height: 180 }}>
+      <View style={s.pieWrap}>
         <PolarChart
           data={pieData}
           labelKey="name"
@@ -157,38 +149,34 @@ function DnfPieCard({
         </PolarChart>
       </View>
 
-      <View className="flex-row justify-center mt-3 gap-x-6">
-        <View className="flex-row items-center">
-          <View className="w-3 h-3 rounded-full bg-indigo-500 mr-1.5" />
-          <Text className="text-neutral-300 text-sm">
-            Finished ({finished})
-          </Text>
+      <View style={s.pieLegend}>
+        <View style={s.pieLegendItem}>
+          <View style={[s.pieDot, { backgroundColor: t.color.accent.base }]} />
+          <Text style={s.pieLegendText}>Finished ({finished})</Text>
         </View>
-        <View className="flex-row items-center">
-          <View className="w-3 h-3 rounded-full bg-red-500 mr-1.5" />
-          <Text className="text-neutral-300 text-sm">DNF ({dnf})</Text>
+        <View style={s.pieLegendItem}>
+          <View style={[s.pieDot, { backgroundColor: "#ef4444" }]} />
+          <Text style={s.pieLegendText}>DNF ({dnf})</Text>
         </View>
       </View>
 
-      <Text className="text-neutral-500 text-xs text-center mt-2">
-        {ratio}% did not finish
-      </Text>
+      <Text style={s.pieRatio}>{ratio}% did not finish</Text>
     </Card>
   );
 }
 
-/* ── main screen ─────────────────────────────────── */
+/* ── Main screen ─────────────────────────────────────── */
 
 interface AnalyticsData {
   booksYear: LabeledValue[];
   pagesYear: LabeledValue[];
-  avgPages: number;
-  streak: StreakResult;
-  dnf: { dnf: number; finished: number; ratio: number };
+  avgPages:  number;
+  streak:    StreakResult;
+  dnf:       { dnf: number; finished: number; ratio: number };
 }
 
 export default function AnalyticsScreen() {
-  const [data, setData] = useState<AnalyticsData | null>(null);
+  const [data,       setData]       = useState<AnalyticsData | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
@@ -203,9 +191,7 @@ export default function AnalyticsScreen() {
     setData({ booksYear, pagesYear, avgPages, streak, dnf: dnfData });
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -215,46 +201,42 @@ export default function AnalyticsScreen() {
 
   if (!data) {
     return (
-      <View className="flex-1 bg-neutral-950 items-center justify-center">
-        <ActivityIndicator color="#6366f1" />
+      <View style={s.loadingWrap}>
+        <ActivityIndicator color={t.color.accent.base} />
       </View>
     );
   }
 
   return (
     <ScrollView
-      className="flex-1 bg-neutral-950"
-      contentContainerClassName="px-4 pt-4 pb-8"
+      style={s.scroll}
+      contentContainerStyle={s.scrollContent}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
           onRefresh={handleRefresh}
-          tintColor="#6366f1"
+          tintColor={t.color.accent.base}
         />
       }
     >
-      <Text className="text-white text-2xl font-bold mb-1">Analytics</Text>
-      <Text className="text-neutral-500 text-sm mb-5">
-        Your reading at a glance
-      </Text>
+      <Text style={s.title}>Analytics</Text>
+      <Text style={s.subtitle}>Your reading at a glance</Text>
 
-      {/* Stat row */}
       <StatCard
         title="Avg Pages / Book"
         value={data.avgPages.toLocaleString()}
         subtitle="across finished books"
       />
 
-      {/* Streak cards */}
-      <View className="flex-row gap-4 mb-0">
-        <View className="flex-1">
+      <View style={s.streakRow}>
+        <View style={s.streakCell}>
           <StatCard
             title="Current Streak"
             value={`${data.streak.current}d`}
             subtitle="consecutive days"
           />
         </View>
-        <View className="flex-1">
+        <View style={s.streakCell}>
           <StatCard
             title="Longest Streak"
             value={`${data.streak.longest}d`}
@@ -263,17 +245,16 @@ export default function AnalyticsScreen() {
         </View>
       </View>
 
-      {/* Charts */}
       <BarChartCard
         title="Books Per Year"
         data={data.booksYear}
-        color="#6366f1"
+        color={t.color.accent.base}
       />
 
       <BarChartCard
         title="Pages Per Year"
         data={data.pagesYear}
-        color="#8b5cf6"
+        color={t.color.accent.strong}
       />
 
       <DnfPieCard
@@ -284,3 +265,111 @@ export default function AnalyticsScreen() {
     </ScrollView>
   );
 }
+
+/* ── Styles ──────────────────────────────────────────── */
+
+const s = StyleSheet.create({
+  loadingWrap: {
+    flex: 1,
+    backgroundColor: t.color.bg.base,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scroll: {
+    flex: 1,
+    backgroundColor: t.color.bg.base,
+  },
+  scrollContent: {
+    paddingHorizontal: t.space._4,
+    paddingTop: t.space._4,
+    paddingBottom: t.space._8,
+  },
+  title: {
+    ...t.font.display,
+    marginBottom: 2,
+  },
+  subtitle: {
+    ...t.font.body,
+    color: t.color.text.tertiary,
+    marginBottom: t.space._5,
+  },
+  card: {
+    backgroundColor: t.color.bg.raised,
+    borderRadius: t.radius["3xl"],
+    padding: t.space._4,
+    marginBottom: t.space._4,
+    borderWidth: 1,
+    borderColor: t.color.border.subtle,
+    ...t.shadow.soft,
+  },
+  cardLabel: {
+    ...t.font.label,
+    marginBottom: t.space._3,
+  },
+  statValue: {
+    fontSize: 36,
+    fontWeight: "800",
+    color: t.color.text.primary,
+  },
+  statSub: {
+    ...t.font.caption,
+    marginTop: t.space._1,
+  },
+  emptyText: {
+    ...t.font.body,
+    color: t.color.text.tertiary,
+    textAlign: "center",
+    paddingVertical: t.space._6,
+  },
+  legendRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: t.space._3,
+    gap: 16,
+  },
+  legendItem: {
+    ...t.font.caption,
+  },
+  legendValue: {
+    ...t.font.caption,
+    color: t.color.text.primary,
+    fontWeight: "700",
+  },
+  streakRow: {
+    flexDirection: "row",
+    gap: t.space._4,
+  },
+  streakCell: {
+    flex: 1,
+  },
+  pieWrap: {
+    height: 180,
+    alignItems: "center",
+  },
+  pieLegend: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: t.space._3,
+    gap: 24,
+  },
+  pieLegendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  pieDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 6,
+  },
+  pieLegendText: {
+    ...t.font.body,
+    color: t.color.text.secondary,
+  },
+  pieRatio: {
+    ...t.font.caption,
+    color: t.color.text.tertiary,
+    textAlign: "center",
+    marginTop: t.space._2,
+  },
+});

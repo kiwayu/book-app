@@ -18,8 +18,9 @@ import {
   type GoogleBook,
 } from "@/services/googleBooks";
 import { useLibraryStore } from "@/store/libraryStore";
+import { t } from "@/theme";
 
-const DEBOUNCE_MS = 800;
+const DEBOUNCE_MS = 350;
 
 /* ── Book Detail Modal ──────────────────────────────── */
 
@@ -36,34 +37,23 @@ function BookDetailModal({
   onClose: () => void;
   onAdd: () => void;
 }) {
-  const [description, setDescription] = useState<string | null>(null);
-  const [loadingDesc, setLoadingDesc] = useState(false);
+  const [description,  setDescription]  = useState<string | null>(null);
+  const [loadingDesc,  setLoadingDesc]  = useState(false);
 
   useEffect(() => {
-    if (!book || !visible) {
-      setDescription(null);
-      return;
-    }
-
-    if (book.description) {
-      setDescription(book.description);
-      return;
-    }
-
+    if (!book || !visible) { setDescription(null); return; }
+    if (book.description) { setDescription(book.description); return; }
     let cancelled = false;
     setLoadingDesc(true);
     fetchBookDescription(book.id).then((desc) => {
-      if (!cancelled) {
-        setDescription(desc);
-        setLoadingDesc(false);
-      }
+      if (!cancelled) { setDescription(desc); setLoadingDesc(false); }
     });
     return () => { cancelled = true; };
   }, [book, visible]);
 
   if (!book) return null;
 
-  const desc = description ?? book.description;
+  const desc      = description ?? book.description;
   const plainDesc = desc
     ? desc.replace(/<[^>]+>/g, "").replace(/&[^;]+;/g, " ").trim()
     : null;
@@ -75,103 +65,94 @@ function BookDetailModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <View style={modalStyles.container}>
-        {/* Close handle */}
-        <View style={modalStyles.handleWrap}>
-          <View style={modalStyles.handle} />
+      <View style={m.container}>
+        <View style={m.handleWrap}>
+          <View style={m.handle} />
         </View>
 
-        {/* Close button */}
-        <Pressable style={modalStyles.closeBtn} onPress={onClose}>
-          <Text style={modalStyles.closeBtnText}>✕</Text>
+        <Pressable style={m.closeBtn} onPress={onClose}>
+          <Text style={m.closeBtnText}>✕</Text>
         </Pressable>
 
         <ScrollView
-          style={modalStyles.scroll}
-          contentContainerStyle={modalStyles.scrollContent}
+          style={m.scroll}
+          contentContainerStyle={m.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Cover */}
-          <View style={modalStyles.coverWrap}>
+          <View style={m.coverWrap}>
             {book.coverLarge || book.cover ? (
               <Image
                 source={{ uri: book.coverLarge ?? book.cover ?? undefined }}
-                style={modalStyles.cover}
+                style={m.cover}
                 contentFit="cover"
               />
             ) : (
-              <View style={[modalStyles.cover, modalStyles.coverPlaceholder]}>
-                <Text style={modalStyles.coverPlaceholderText}>📖</Text>
+              <View style={[m.cover, m.coverPlaceholder]}>
+                <Text style={m.coverPlaceholderText}>📖</Text>
               </View>
             )}
           </View>
 
-          {/* Title & Author */}
-          <Text style={modalStyles.title}>{book.title}</Text>
-          <Text style={modalStyles.authors}>
+          <Text style={m.title}>{book.title}</Text>
+          <Text style={m.authors}>
             {book.authors.length > 0 ? book.authors.join(", ") : "Unknown author"}
           </Text>
 
-          {/* Meta pills */}
-          <View style={modalStyles.metaRow}>
+          <View style={m.metaRow}>
             {book.publishedYear != null && (
-              <View style={modalStyles.pill}>
-                <Text style={modalStyles.pillText}>{book.publishedYear}</Text>
+              <View style={m.pill}>
+                <Text style={m.pillText}>{book.publishedYear}</Text>
               </View>
             )}
             {book.pageCount != null && (
-              <View style={modalStyles.pill}>
-                <Text style={modalStyles.pillText}>{book.pageCount} pages</Text>
+              <View style={m.pill}>
+                <Text style={m.pillText}>{book.pageCount} pages</Text>
               </View>
             )}
             {book.publisher && (
-              <View style={modalStyles.pill}>
-                <Text style={modalStyles.pillText}>{book.publisher}</Text>
+              <View style={m.pill}>
+                <Text style={m.pillText}>{book.publisher}</Text>
               </View>
             )}
           </View>
 
-          {/* Categories */}
           {book.categories.length > 0 && (
-            <View style={modalStyles.categoriesRow}>
+            <View style={m.categoriesRow}>
               {book.categories.slice(0, 4).map((cat, i) => (
-                <View key={i} style={modalStyles.categoryPill}>
-                  <Text style={modalStyles.categoryText}>{cat}</Text>
+                <View key={i} style={m.categoryPill}>
+                  <Text style={m.categoryText}>{cat}</Text>
                 </View>
               ))}
             </View>
           )}
 
-          {/* ISBN */}
           {book.isbn && (
-            <Text style={modalStyles.isbn}>ISBN: {book.isbn}</Text>
+            <Text style={m.isbn}>ISBN: {book.isbn}</Text>
           )}
 
-          {/* Synopsis */}
-          <View style={modalStyles.synopsisSection}>
-            <Text style={modalStyles.synopsisLabel}>Synopsis</Text>
+          <View style={m.synopsisSection}>
+            <Text style={m.synopsisLabel}>Synopsis</Text>
             {loadingDesc && !plainDesc && (
-              <View style={modalStyles.descLoading}>
-                <ActivityIndicator color="#818cf8" size="small" />
-                <Text style={modalStyles.descLoadingText}>Loading synopsis...</Text>
+              <View style={m.descLoading}>
+                <ActivityIndicator color={t.color.accent.base} size="small" />
+                <Text style={m.descLoadingText}>Loading synopsis…</Text>
               </View>
             )}
             {plainDesc ? (
-              <Text style={modalStyles.synopsisText}>{plainDesc}</Text>
+              <Text style={m.synopsisText}>{plainDesc}</Text>
             ) : !loadingDesc ? (
-              <Text style={modalStyles.noSynopsis}>No synopsis available for this book.</Text>
+              <Text style={m.noSynopsis}>No synopsis available for this book.</Text>
             ) : null}
           </View>
         </ScrollView>
 
-        {/* Bottom action */}
-        <View style={modalStyles.bottomBar}>
+        <View style={m.bottomBar}>
           <Pressable
-            style={[modalStyles.addLibraryBtn, added && modalStyles.addLibraryBtnDone]}
+            style={[m.addLibraryBtn, added && m.addLibraryBtnDone]}
             onPress={onAdd}
             disabled={added}
           >
-            <Text style={[modalStyles.addLibraryBtnText, added && modalStyles.addLibraryBtnTextDone]}>
+            <Text style={[m.addLibraryBtnText, added && m.addLibraryBtnTextDone]}>
               {added ? "✓ Added to Library" : "+ Add to Library"}
             </Text>
           </Pressable>
@@ -195,43 +176,46 @@ function BookResult({
   onAdd: () => void;
 }) {
   return (
-    <Pressable style={styles.resultRow} onPress={onPress}>
+    <Pressable
+      style={({ pressed }) => [s.resultRow, pressed && s.resultRowPressed]}
+      onPress={onPress}
+    >
       {item.cover ? (
-        <Image source={{ uri: item.cover }} style={styles.cover} contentFit="cover" />
+        <Image source={{ uri: item.cover }} style={s.cover} contentFit="cover" />
       ) : (
-        <View style={[styles.cover, styles.coverPlaceholder]}>
-          <Text style={styles.coverPlaceholderText}>📖</Text>
+        <View style={[s.cover, s.coverPlaceholder]}>
+          <Text style={s.coverPlaceholderText}>📖</Text>
         </View>
       )}
 
-      <View style={styles.resultInfo}>
-        <Text style={styles.bookTitle} numberOfLines={2}>{item.title}</Text>
-        <Text style={styles.bookAuthor} numberOfLines={1}>
+      <View style={s.resultInfo}>
+        <Text style={s.bookTitle} numberOfLines={2}>{item.title}</Text>
+        <Text style={s.bookAuthor} numberOfLines={1}>
           {item.authors.length > 0 ? item.authors.join(", ") : "Unknown author"}
         </Text>
-        <View style={styles.metaRow}>
+        <View style={s.metaRow}>
           {item.publishedYear != null && (
-            <Text style={styles.metaText}>{item.publishedYear}</Text>
+            <Text style={s.metaText}>{item.publishedYear}</Text>
           )}
           {item.pageCount != null && (
-            <Text style={styles.metaText}>
+            <Text style={s.metaText}>
               {item.publishedYear != null ? " · " : ""}{item.pageCount} pages
             </Text>
           )}
         </View>
       </View>
 
-      <View style={styles.resultActions}>
+      <View style={s.resultActions}>
         <Pressable
           onPress={(e) => { e.stopPropagation(); onAdd(); }}
           disabled={added}
-          style={[styles.addBtn, added && styles.addBtnDone]}
+          style={[s.addBtn, added && s.addBtnDone]}
         >
-          <Text style={[styles.addBtnText, added && styles.addBtnTextDone]}>
+          <Text style={[s.addBtnText, added && s.addBtnTextDone]}>
             {added ? "✓" : "+"}
           </Text>
         </Pressable>
-        <Text style={styles.chevron}>›</Text>
+        <Text style={s.chevron}>›</Text>
       </View>
     </Pressable>
   );
@@ -240,30 +224,24 @@ function BookResult({
 /* ── Search Screen ──────────────────────────────────── */
 
 export default function SearchScreen() {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<GoogleBook[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
-  const [hasSearched, setHasSearched] = useState(false);
+  const [query,        setQuery]        = useState("");
+  const [results,      setResults]      = useState<GoogleBook[]>([]);
+  const [isSearching,  setIsSearching]  = useState(false);
+  const [error,        setError]        = useState<string | null>(null);
+  const [addedIds,     setAddedIds]     = useState<Set<string>>(new Set());
+  const [hasSearched,  setHasSearched]  = useState(false);
   const [selectedBook, setSelectedBook] = useState<GoogleBook | null>(null);
 
-  const addBook = useLibraryStore((s) => s.addBook);
+  const addBook  = useLibraryStore((s) => s.addBook);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runSearch = useCallback(async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) {
-      setResults([]);
-      setIsSearching(false);
-      setHasSearched(false);
+      setResults([]); setIsSearching(false); setHasSearched(false);
       return;
     }
-
-    setIsSearching(true);
-    setError(null);
-    setHasSearched(true);
-
+    setIsSearching(true); setError(null); setHasSearched(true);
     try {
       const data = await searchBooks(trimmed);
       setResults(data);
@@ -282,9 +260,7 @@ export default function SearchScreen() {
       if (text.trim().length >= 2) {
         timerRef.current = setTimeout(() => runSearch(text), DEBOUNCE_MS);
       } else {
-        setResults([]);
-        setHasSearched(false);
-        setError(null);
+        setResults([]); setHasSearched(false); setError(null);
       }
     },
     [runSearch]
@@ -299,9 +275,7 @@ export default function SearchScreen() {
       try {
         await addBook(book, "want_to_read");
         setAddedIds((prev) => new Set(prev).add(book.id));
-      } catch {
-        /* duplicate */
-      }
+      } catch { /* duplicate */ }
     },
     [addBook]
   );
@@ -309,21 +283,21 @@ export default function SearchScreen() {
   const showEmpty = hasSearched && !isSearching && !error && results.length === 0;
 
   return (
-    <View style={styles.container}>
+    <View style={s.container}>
       {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Search</Text>
-        <Text style={styles.headerSub}>Find your next read</Text>
+      <View style={s.header}>
+        <Text style={s.headerTitle}>Search</Text>
+        <Text style={s.headerSub}>Find your next read</Text>
       </View>
 
       {/* Search bar */}
-      <View style={styles.searchBarWrap}>
-        <View style={styles.searchBar}>
-          <Text style={styles.searchIcon}>🔍</Text>
+      <View style={s.searchBarWrap}>
+        <View style={s.searchBar}>
+          <Text style={s.searchIcon}>🔍</Text>
           <TextInput
-            style={styles.searchInput}
-            placeholder="Title, author, or ISBN..."
-            placeholderTextColor="#6b7280"
+            style={s.searchInput}
+            placeholder="Title, author, or ISBN…"
+            placeholderTextColor={t.color.text.faint}
             value={query}
             onChangeText={handleChangeText}
             autoCapitalize="none"
@@ -337,15 +311,10 @@ export default function SearchScreen() {
           />
           {query.length > 0 && (
             <Pressable
-              onPress={() => {
-                setQuery("");
-                setResults([]);
-                setError(null);
-                setHasSearched(false);
-              }}
-              style={styles.clearBtn}
+              onPress={() => { setQuery(""); setResults([]); setError(null); setHasSearched(false); }}
+              style={s.clearBtn}
             >
-              <Text style={styles.clearBtnText}>✕</Text>
+              <Text style={s.clearBtnText}>✕</Text>
             </Pressable>
           )}
         </View>
@@ -353,47 +322,45 @@ export default function SearchScreen() {
 
       {/* Loading */}
       {isSearching && (
-        <View style={styles.centerState}>
-          <ActivityIndicator color="#818cf8" size="large" />
-          <Text style={styles.stateText}>Searching...</Text>
+        <View style={s.centerState}>
+          <ActivityIndicator color={t.color.accent.base} size="large" />
+          <Text style={s.stateText}>Searching…</Text>
         </View>
       )}
 
       {/* Error */}
       {error && (
-        <View style={styles.centerState}>
-          <Text style={styles.errorEmoji}>⚠️</Text>
-          <Text style={styles.errorText}>{error}</Text>
-          <Pressable style={styles.retryBtn} onPress={() => runSearch(query)}>
-            <Text style={styles.retryBtnText}>Try again</Text>
+        <View style={s.centerState}>
+          <Text style={s.emptyEmoji}>⚠️</Text>
+          <Text style={s.errorText}>{error}</Text>
+          <Pressable style={s.retryBtn} onPress={() => runSearch(query)}>
+            <Text style={s.retryBtnText}>Try again</Text>
           </Pressable>
         </View>
       )}
 
       {/* Empty */}
       {showEmpty && (
-        <View style={styles.centerState}>
-          <Text style={styles.emptyEmoji}>📚</Text>
-          <Text style={styles.stateText}>No books found</Text>
-          <Text style={styles.stateSubtext}>Try a different search term</Text>
+        <View style={s.centerState}>
+          <Text style={s.emptyEmoji}>📚</Text>
+          <Text style={s.stateText}>No books found</Text>
+          <Text style={s.stateSubtext}>Try a different search term</Text>
         </View>
       )}
 
-      {/* Idle state */}
+      {/* Idle */}
       {!hasSearched && !isSearching && results.length === 0 && (
-        <View style={styles.centerState}>
-          <Text style={styles.emptyEmoji}>🔎</Text>
-          <Text style={styles.stateText}>Search for books</Text>
-          <Text style={styles.stateSubtext}>
-            Tap a result to see full details and synopsis
-          </Text>
+        <View style={s.centerState}>
+          <Text style={s.emptyEmoji}>🔎</Text>
+          <Text style={s.stateText}>Search for books</Text>
+          <Text style={s.stateSubtext}>Tap a result to see full details and synopsis</Text>
         </View>
       )}
 
       {/* Results count */}
       {results.length > 0 && !isSearching && (
-        <View style={styles.resultsHeader}>
-          <Text style={styles.resultsCount}>
+        <View style={s.resultsHeader}>
+          <Text style={s.resultsCount}>
             {results.length} result{results.length !== 1 ? "s" : ""}
           </Text>
         </View>
@@ -412,18 +379,16 @@ export default function SearchScreen() {
           />
         )}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={s.listContent}
       />
 
-      {/* Book Detail Modal */}
+      {/* Detail modal */}
       <BookDetailModal
         book={selectedBook}
         visible={selectedBook !== null}
         added={selectedBook ? addedIds.has(selectedBook.id) : false}
         onClose={() => setSelectedBook(null)}
-        onAdd={() => {
-          if (selectedBook) handleAdd(selectedBook);
-        }}
+        onAdd={() => { if (selectedBook) handleAdd(selectedBook); }}
       />
     </View>
   );
@@ -431,57 +396,56 @@ export default function SearchScreen() {
 
 /* ── Search Screen Styles ───────────────────────────── */
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0a0a0a",
+    backgroundColor: t.color.bg.base,
   },
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 4,
+    paddingHorizontal: t.space._5,
+    paddingTop: t.space._4,
+    paddingBottom: t.space._1,
   },
   headerTitle: {
-    color: "#ffffff",
-    fontSize: 28,
-    fontWeight: "800",
+    ...t.font.display,
   },
   headerSub: {
-    color: "#9ca3af",
-    fontSize: 15,
+    ...t.font.body,
+    color: t.color.text.tertiary,
     marginTop: 2,
   },
   searchBarWrap: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingHorizontal: t.space._4,
+    paddingTop: t.space._3,
+    paddingBottom: t.space._2,
   },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#1c1c1e",
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    backgroundColor: t.color.bg.raised,
+    borderRadius: t.radius["2xl"],
+    paddingHorizontal: t.space._4,
+    paddingVertical: t.space._3,
     borderWidth: 1,
-    borderColor: "#2c2c2e",
+    borderColor: t.color.border.default,
+    ...t.shadow.soft,
   },
   searchIcon: {
-    fontSize: 16,
-    marginRight: 10,
+    fontSize: 15,
+    marginRight: t.space._3,
   },
   searchInput: {
     flex: 1,
-    color: "#ffffff",
+    color: t.color.text.primary,
     fontSize: 16,
   },
   clearBtn: {
-    marginLeft: 8,
+    marginLeft: t.space._2,
     padding: 4,
   },
   clearBtnText: {
-    color: "#9ca3af",
-    fontSize: 16,
+    color: t.color.text.muted,
+    fontSize: 15,
     fontWeight: "600",
   },
   centerState: {
@@ -490,53 +454,45 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   stateText: {
-    color: "#9ca3af",
-    fontSize: 16,
-    fontWeight: "600",
-    marginTop: 12,
+    ...t.font.headline,
+    color: t.color.text.secondary,
+    marginTop: t.space._3,
   },
   stateSubtext: {
-    color: "#6b7280",
-    fontSize: 14,
-    marginTop: 4,
+    ...t.font.body,
+    color: t.color.text.tertiary,
+    marginTop: t.space._1,
   },
   emptyEmoji: {
     fontSize: 40,
   },
-  errorEmoji: {
-    fontSize: 36,
-  },
   errorText: {
-    color: "#f87171",
+    color: t.color.error.light,
     fontSize: 15,
     fontWeight: "600",
-    marginTop: 12,
+    marginTop: t.space._3,
     textAlign: "center",
   },
   retryBtn: {
-    marginTop: 16,
-    backgroundColor: "#1c1c1e",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 10,
+    marginTop: t.space._4,
+    backgroundColor: t.color.bg.raised,
+    paddingHorizontal: t.space._5,
+    paddingVertical: t.space._3,
+    borderRadius: t.radius.xl,
     borderWidth: 1,
-    borderColor: "#2c2c2e",
+    borderColor: t.color.border.default,
   },
   retryBtnText: {
-    color: "#818cf8",
+    color: t.color.accent.strong,
     fontSize: 14,
     fontWeight: "600",
   },
   resultsHeader: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
+    paddingHorizontal: t.space._5,
+    paddingVertical: t.space._2,
   },
   resultsCount: {
-    color: "#6b7280",
-    fontSize: 13,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    ...t.font.label,
   },
   listContent: {
     paddingBottom: 32,
@@ -544,40 +500,41 @@ const styles = StyleSheet.create({
   resultRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: t.space._4,
+    paddingVertical: t.space._3,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#1c1c1e",
+    borderBottomColor: t.color.border.subtle,
+  },
+  resultRowPressed: {
+    backgroundColor: t.color.bg.raised,
   },
   cover: {
-    width: 50,
-    height: 75,
-    borderRadius: 6,
-    backgroundColor: "#1c1c1e",
+    width: 52,
+    height: 78,
+    borderRadius: t.radius.lg,
+    backgroundColor: t.color.bg.overlay,
   },
   coverPlaceholder: {
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#2c2c2e",
+    borderColor: t.color.border.default,
   },
   coverPlaceholderText: {
     fontSize: 22,
   },
   resultInfo: {
     flex: 1,
-    marginLeft: 14,
-    marginRight: 10,
+    marginLeft: t.space._4,
+    marginRight: t.space._2,
   },
   bookTitle: {
-    color: "#f3f4f6",
-    fontSize: 15,
-    fontWeight: "700",
+    ...t.font.headline,
     lineHeight: 20,
   },
   bookAuthor: {
-    color: "#9ca3af",
-    fontSize: 13,
+    ...t.font.body,
+    color: t.color.text.muted,
     marginTop: 2,
   },
   metaRow: {
@@ -585,16 +542,16 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   metaText: {
-    color: "#6b7280",
-    fontSize: 12,
+    ...t.font.caption,
+    color: t.color.text.tertiary,
   },
   resultActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: t.space._2,
   },
   addBtn: {
-    backgroundColor: "#4f46e5",
+    backgroundColor: t.color.accent.base,
     width: 36,
     height: 36,
     borderRadius: 18,
@@ -602,21 +559,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   addBtnDone: {
-    backgroundColor: "#1c1c1e",
+    backgroundColor: t.color.bg.overlay,
     borderWidth: 1,
-    borderColor: "#2c2c2e",
+    borderColor: t.color.border.default,
   },
   addBtnText: {
-    color: "#ffffff",
+    color: "#fff",
     fontSize: 18,
     fontWeight: "600",
   },
   addBtnTextDone: {
-    color: "#6b7280",
+    color: t.color.text.tertiary,
     fontSize: 14,
   },
   chevron: {
-    color: "#4b5563",
+    color: t.color.text.faint,
     fontSize: 22,
     fontWeight: "300",
   },
@@ -624,37 +581,37 @@ const styles = StyleSheet.create({
 
 /* ── Modal Styles ───────────────────────────────────── */
 
-const modalStyles = StyleSheet.create({
+const m = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0a0a0a",
+    backgroundColor: t.color.bg.base,
   },
   handleWrap: {
     alignItems: "center",
-    paddingTop: 10,
-    paddingBottom: 4,
+    paddingTop: t.space._3,
+    paddingBottom: t.space._1,
   },
   handle: {
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#3f3f46",
+    backgroundColor: t.color.border.default,
   },
   closeBtn: {
     position: "absolute",
     top: 12,
-    right: 16,
+    right: t.space._4,
     zIndex: 10,
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#1c1c1e",
+    backgroundColor: t.color.bg.overlay,
     alignItems: "center",
     justifyContent: "center",
   },
   closeBtnText: {
-    color: "#9ca3af",
-    fontSize: 14,
+    color: t.color.text.secondary,
+    fontSize: 13,
     fontWeight: "700",
   },
   scroll: {
@@ -665,138 +622,134 @@ const modalStyles = StyleSheet.create({
   },
   coverWrap: {
     alignItems: "center",
-    paddingTop: 20,
-    paddingBottom: 20,
+    paddingTop: t.space._5,
+    paddingBottom: t.space._5,
   },
   cover: {
     width: 160,
     height: 240,
-    borderRadius: 10,
-    backgroundColor: "#1c1c1e",
+    borderRadius: t.radius.xl,
+    backgroundColor: t.color.bg.overlay,
   },
   coverPlaceholder: {
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#2c2c2e",
+    borderColor: t.color.border.default,
   },
   coverPlaceholderText: {
     fontSize: 48,
   },
   title: {
-    color: "#ffffff",
-    fontSize: 22,
-    fontWeight: "800",
+    ...t.font.display,
     textAlign: "center",
-    paddingHorizontal: 24,
-    lineHeight: 28,
+    paddingHorizontal: t.space._6,
+    lineHeight: 34,
   },
   authors: {
-    color: "#9ca3af",
-    fontSize: 15,
+    ...t.font.body,
+    color: t.color.text.muted,
     textAlign: "center",
-    marginTop: 6,
-    paddingHorizontal: 24,
+    marginTop: t.space._2,
+    paddingHorizontal: t.space._6,
   },
   metaRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    paddingHorizontal: 24,
-    marginTop: 14,
-    gap: 8,
+    paddingHorizontal: t.space._6,
+    marginTop: t.space._4,
+    gap: t.space._2,
   },
   pill: {
-    backgroundColor: "#1c1c1e",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    backgroundColor: t.color.bg.raised,
+    borderRadius: t.radius.md,
+    paddingHorizontal: t.space._3,
+    paddingVertical: t.space._2,
     borderWidth: 1,
-    borderColor: "#2c2c2e",
+    borderColor: t.color.border.default,
   },
   pillText: {
-    color: "#d1d5db",
-    fontSize: 13,
-    fontWeight: "600",
+    ...t.font.caption,
+    color: t.color.text.secondary,
   },
   categoriesRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    paddingHorizontal: 24,
-    marginTop: 10,
-    gap: 6,
+    paddingHorizontal: t.space._6,
+    marginTop: t.space._3,
+    gap: t.space._2,
   },
   categoryPill: {
-    backgroundColor: "rgba(79, 70, 229, 0.15)",
-    borderRadius: 6,
-    paddingHorizontal: 10,
+    backgroundColor: t.color.accent.bg,
+    borderRadius: t.radius.sm,
+    paddingHorizontal: t.space._3,
     paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: t.color.accent.border,
   },
   categoryText: {
-    color: "#a5b4fc",
-    fontSize: 12,
-    fontWeight: "600",
+    ...t.font.caption,
+    color: t.color.accent.strong,
   },
   isbn: {
-    color: "#6b7280",
-    fontSize: 12,
+    ...t.font.caption,
+    color: t.color.text.tertiary,
     textAlign: "center",
-    marginTop: 10,
+    marginTop: t.space._3,
   },
   synopsisSection: {
-    paddingHorizontal: 24,
-    marginTop: 24,
+    paddingHorizontal: t.space._6,
+    marginTop: t.space._6,
   },
   synopsisLabel: {
-    color: "#f3f4f6",
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 10,
+    ...t.font.title,
+    marginBottom: t.space._3,
   },
   synopsisText: {
-    color: "#d1d5db",
-    fontSize: 15,
+    ...t.font.body,
+    color: t.color.text.secondary,
     lineHeight: 24,
   },
   noSynopsis: {
-    color: "#6b7280",
-    fontSize: 14,
+    ...t.font.body,
+    color: t.color.text.tertiary,
     fontStyle: "italic",
   },
   descLoading: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: t.space._3,
   },
   descLoadingText: {
-    color: "#6b7280",
-    fontSize: 14,
+    ...t.font.body,
+    color: t.color.text.tertiary,
   },
   bottomBar: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: t.space._5,
+    paddingVertical: t.space._4,
     borderTopWidth: 1,
-    borderTopColor: "#1c1c1e",
-    backgroundColor: "#0a0a0a",
+    borderTopColor: t.color.border.subtle,
+    backgroundColor: t.color.bg.base,
   },
   addLibraryBtn: {
-    backgroundColor: "#4f46e5",
-    borderRadius: 14,
-    paddingVertical: 16,
+    backgroundColor: t.color.accent.base,
+    borderRadius: t.radius["2xl"],
+    paddingVertical: t.space._4,
     alignItems: "center",
   },
   addLibraryBtnDone: {
-    backgroundColor: "#1c1c1e",
+    backgroundColor: t.color.bg.raised,
     borderWidth: 1,
-    borderColor: "#2c2c2e",
+    borderColor: t.color.border.default,
   },
   addLibraryBtnText: {
-    color: "#ffffff",
+    color: "#fff",
     fontSize: 16,
     fontWeight: "700",
   },
   addLibraryBtnTextDone: {
-    color: "#6b7280",
+    color: t.color.text.tertiary,
   },
 });

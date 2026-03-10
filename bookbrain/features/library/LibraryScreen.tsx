@@ -10,6 +10,7 @@ import {
   TextInput,
   Alert,
   StyleSheet,
+  Animated,
   type LayoutChangeEvent,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -113,14 +114,32 @@ function SortStrip({ sortKey, sortDir, onSelect, onToggleDir }: {
   sortKey: SortKey; sortDir: SortDir;
   onSelect: (key: SortKey) => void; onToggleDir: () => void;
 }) {
+  const arrowTranslate = useRef(new Animated.Value(0)).current;
+
+  const handlePress = (key: SortKey) => {
+    const dirWillChange = key === sortKey;
+    if (dirWillChange) {
+      arrowTranslate.setValue(-6);
+      Animated.spring(arrowTranslate, { toValue: 0, friction: 5, tension: 120, useNativeDriver: true }).start();
+      onToggleDir();
+    } else {
+      onSelect(key);
+    }
+  };
+
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={srt.strip}>
       {SORT_OPTIONS.map((opt) => {
         const active = opt.key === sortKey;
         return (
-          <Pressable key={opt.key} style={[srt.pill, active && srt.pillActive]}
-            onPress={() => { if (active) onToggleDir(); else onSelect(opt.key); }}>
-            {active && <Text style={srt.dirArrow}>{sortDir === "asc" ? "↑" : "↓"}</Text>}
+          <Pressable key={opt.key}
+            style={({ pressed }) => [srt.pill, active && srt.pillActive, pressed && srt.pillPressed]}
+            onPress={() => handlePress(opt.key)}>
+            {active && (
+              <Animated.Text style={[srt.dirArrow, { transform: [{ translateY: arrowTranslate }] }]}>
+                {sortDir === "asc" ? "↑" : "↓"}
+              </Animated.Text>
+            )}
             <Text style={[srt.pillLabel, active && srt.pillLabelActive]}>{opt.shortLabel}</Text>
           </Pressable>
         );
@@ -231,7 +250,7 @@ export default function LibraryScreen() {
   const {
     books, folders, tags, isLoading, loadLibrary,
     startReading, finishReading, markDNF, openBook,
-    createFolder, deleteFolder, setCurrentBook,
+    createFolder, deleteFolder, setCurrentBook, deleteBook,
   } = useLibraryStore();
   const router = useRouter();
 
@@ -464,6 +483,10 @@ export default function LibraryScreen() {
   const handleSheetOpenReader = useCallback(async (bookId: number) => {
     const book = bookMap.get(bookId); if (book) await handleOpenReader(book);
   }, [bookMap, handleOpenReader]);
+  const handleSheetDelete = useCallback(async (bookId: number) => {
+    await deleteBook(bookId);
+    setDetailBook(null);
+  }, [deleteBook]);
 
   const handleLetterSelect = useCallback((letter: string) => {
     const y = letterPositions.current.get(letter);
@@ -499,8 +522,9 @@ export default function LibraryScreen() {
             <Text style={s.headerTitle}>My Library</Text>
             <Text style={s.headerSub}>{books.length} {books.length === 1 ? "book" : "books"}</Text>
           </View>
-          <Pressable style={s.addBtn} onPress={goToSearch}>
-            <Text style={s.addBtnText}>+ Add</Text>
+          <Pressable style={({ pressed }) => [s.addBtn, pressed && s.addBtnPressed]} onPress={goToSearch}>
+            <IconSymbol name="plus" size={13} color="#fff" />
+            <Text style={s.addBtnText}>Add</Text>
           </Pressable>
         </View>
 
@@ -514,7 +538,7 @@ export default function LibraryScreen() {
             onPress={() => setShowFilterModal(true)}
           >
             <IconSymbol
-              name="gearshape.fill"
+              name="slider.horizontal.3"
               size={16}
               color={activeFilterCount > 0 ? t.color.accent.lighter : t.color.text.tertiary}
             />
@@ -625,7 +649,8 @@ export default function LibraryScreen() {
       <BookDetailSheet book={detailBook} progress={detailBook ? progressMap.get(detailBook.id) : undefined}
         visible={detailBook !== null} onClose={() => setDetailBook(null)}
         onStartReading={handleSheetStartReading} onMarkFinished={handleSheetFinish}
-        onMarkDNF={handleSheetDNF} onOpenReader={handleSheetOpenReader} />
+        onMarkDNF={handleSheetDNF} onOpenReader={handleSheetOpenReader}
+        onDeleteBook={handleSheetDelete} />
     </View>
   );
 }
@@ -639,19 +664,21 @@ const s = StyleSheet.create({
   scroller: { flex: 1 },
 
   header: {
-    flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start",
-    paddingHorizontal: t.space._5, paddingTop: t.space._4, paddingBottom: t.space._2,
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingHorizontal: t.space._5, paddingTop: t.space._6, paddingBottom: t.space._3,
   },
   headerTitle: { ...t.font.display },
-  headerSub: { ...t.font.body, color: t.color.text.tertiary, marginTop: 2 },
+  headerSub: { ...t.font.caption, color: t.color.text.tertiary, marginTop: 3 },
   addBtn: {
+    flexDirection: "row", alignItems: "center", gap: t.space._1 + 1,
     backgroundColor: t.color.accent.strong,
-    paddingHorizontal: t.space._4 - 2,
-    paddingVertical: t.space._2 + 1,
-    borderRadius: t.radius.xl,
-    marginTop: t.space._1,
+    paddingHorizontal: t.space._4,
+    paddingVertical: t.space._2 + 2,
+    borderRadius: t.radius.pill,
+    ...t.shadow.soft,
   },
-  addBtnText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  addBtnText: { color: "#fff", fontSize: 13, fontWeight: "700", letterSpacing: -0.1 },
+  addBtnPressed: { opacity: 0.82, transform: [{ scale: 0.96 }] },
   loader: { alignItems: "center", paddingVertical: t.space._16 - 4 },
 
   section: { marginTop: t.space._4 },
@@ -711,17 +738,17 @@ const s = StyleSheet.create({
   },
   letterLine: {
     flex: 1, height: StyleSheet.hairlineWidth,
-    backgroundColor: "rgba(129,140,248,0.15)", marginLeft: t.space._2,
+    backgroundColor: "rgba(90,157,212,0.22)", marginLeft: t.space._2,
   },
 });
 
 const ctrl = StyleSheet.create({
   searchRow: {
     flexDirection: "row", alignItems: "center",
-    marginHorizontal: t.space._4, marginTop: t.space._2, gap: t.space._2,
+    marginHorizontal: t.space._4, marginTop: t.space._1, marginBottom: t.space._1, gap: t.space._2,
   },
   filterBtn: {
-    width: 42, height: 42, borderRadius: t.radius.xl,
+    width: 42, height: 42, borderRadius: t.radius["3xl"],
     backgroundColor: t.color.bg.raised, borderWidth: 1, borderColor: t.color.border.default,
     alignItems: "center", justifyContent: "center",
   },
@@ -751,12 +778,13 @@ const srt = StyleSheet.create({
   },
   pillActive: { backgroundColor: t.color.accent.bg, borderColor: t.color.accent.border },
   pillLabel: { color: t.color.text.muted, fontSize: 12, fontWeight: "600" },
-  pillLabelActive: { color: t.color.accent.lightest },
+  pillLabelActive: { color: t.color.accent.strong },
+  pillPressed: { opacity: 0.7 },
   dirArrow: { color: t.color.accent.lighter, fontSize: 11, fontWeight: "800", marginRight: 3 },
 });
 
 const modal = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(5,5,14,0.82)", justifyContent: "center", alignItems: "center", padding: t.space._8 },
+  overlay: { flex: 1, backgroundColor: "rgba(56,73,89,0.55)", justifyContent: "center", alignItems: "center", padding: t.space._8 },
   card: {
     width: "100%", maxWidth: 360, backgroundColor: t.color.bg.overlay,
     borderRadius: t.radius["3xl"], padding: t.space._6, borderWidth: 1, borderColor: t.color.border.accent,

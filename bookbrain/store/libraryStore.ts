@@ -70,6 +70,7 @@ interface LibraryState {
   openBook: (bookId: number) => Promise<void>;
   incrementReread: (bookId: number) => Promise<void>;
   updateBookMeta: (bookId: number, fields: Partial<Pick<Book, "series" | "series_index" | "genres">>) => Promise<void>;
+  deleteBook: (bookId: number) => Promise<void>;
   setCurrentBook: (book: BookWithEntry | null) => void;
 
   loadFolders: () => Promise<void>;
@@ -328,6 +329,18 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     if (sets.length === 0) return;
     params.push(bookId);
     await execute(`UPDATE books SET ${sets.join(", ")} WHERE id = ?`, params);
+    await get().loadLibrary();
+  },
+
+  deleteBook: async (bookId) => {
+    await execute("DELETE FROM reading_sessions WHERE book_id = ?", [bookId]);
+    await execute("DELETE FROM reading_progress WHERE book_id = ?", [bookId]);
+    await execute("DELETE FROM book_tags WHERE book_id = ?", [bookId]);
+    await execute("DELETE FROM folder_books WHERE book_id = ?", [bookId]);
+    await execute("DELETE FROM library_entries WHERE book_id = ?", [bookId]);
+    await execute("DELETE FROM books WHERE id = ?", [bookId]);
+    const { currentBook } = get();
+    if (currentBook?.id === bookId) set({ currentBook: null });
     await get().loadLibrary();
   },
 

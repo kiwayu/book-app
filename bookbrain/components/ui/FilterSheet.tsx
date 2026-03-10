@@ -199,7 +199,7 @@ const chip = StyleSheet.create({
 const fs = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(5,5,14,0.80)",
+    backgroundColor: "rgba(56,73,89,0.52)",
     justifyContent: "flex-end",
   },
   sheet: {

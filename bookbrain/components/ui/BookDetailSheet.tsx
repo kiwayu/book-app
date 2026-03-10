@@ -1,4 +1,4 @@
-import { View, Text, Pressable, Modal, ScrollView, StyleSheet } from "react-native";
+import { View, Text, Pressable, Modal, ScrollView, StyleSheet, Alert } from "react-native";
 import { t } from "@/theme";
 import { BookCard, type BookCardProgress } from "./BookCard";
 import type { BookWithEntry } from "@/store/libraryStore";
@@ -20,11 +20,12 @@ export interface BookDetailSheetProps {
   onMarkFinished?: (bookId: number) => void;
   onMarkDNF?: (bookId: number) => void;
   onOpenReader?: (bookId: number) => void;
+  onDeleteBook?: (bookId: number) => void;
 }
 
 export function BookDetailSheet({
   book, progress, visible, onClose,
-  onStartReading, onMarkFinished, onMarkDNF, onOpenReader,
+  onStartReading, onMarkFinished, onMarkDNF, onOpenReader, onDeleteBook,
 }: BookDetailSheetProps) {
   if (!book) return null;
 
@@ -47,6 +48,23 @@ export function BookDetailSheet({
     actions.push({ icon: "✕", label: "Did Not Finish", color: t.color.error.light, bg: t.color.error.bg, onPress: () => onMarkDNF(book.id) });
   }
 
+  const handleDelete = onDeleteBook
+    ? () => {
+        Alert.alert(
+          "Remove from Library",
+          `Remove "${book.title}" from your library? This cannot be undone.`,
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Remove",
+              style: "destructive",
+              onPress: () => { onDeleteBook(book.id); onClose(); },
+            },
+          ]
+        );
+      }
+    : undefined;
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <Pressable style={ds.overlay} onPress={onClose}>
@@ -67,6 +85,12 @@ export function BookDetailSheet({
                   <Text style={[ds.actionLabel, { color: a.color }]}>{a.label}</Text>
                 </Pressable>
               ))}
+              {handleDelete && (
+                <Pressable style={[ds.actionBtn, ds.deleteBtn]} onPress={handleDelete}>
+                  <Text style={[ds.actionIcon, ds.deleteIcon]}>🗑</Text>
+                  <Text style={[ds.actionLabel, ds.deleteLabel]}>Remove from Library</Text>
+                </Pressable>
+              )}
             </View>
           </ScrollView>
         </Pressable>
@@ -78,7 +102,7 @@ export function BookDetailSheet({
 const ds = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(5,5,14,0.80)",
+    backgroundColor: "rgba(56,73,89,0.52)",
     justifyContent: "flex-end",
   },
   sheet: {
@@ -94,7 +118,7 @@ const ds = StyleSheet.create({
   },
   handle: {
     width: 36, height: 4, borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.2)",
+    backgroundColor: "rgba(56,73,89,0.16)",
     alignSelf: "center",
     marginTop: t.space._3,
     marginBottom: t.space._4,
@@ -110,4 +134,7 @@ const ds = StyleSheet.create({
   },
   actionIcon: { fontSize: 16, marginRight: t.space._3 },
   actionLabel: { fontSize: 15, fontWeight: "600" as const },
+  deleteBtn: { backgroundColor: t.color.error.bg, marginTop: t.space._2 },
+  deleteIcon: { color: t.color.error.base },
+  deleteLabel: { color: t.color.error.base },
 });

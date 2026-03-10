@@ -13,22 +13,25 @@ export interface CoverShelfBook {
 
 /* ── CoverShelfItem ───────────────────────────────── */
 
-function CoverShelfItem({ item, progress, onPress, onLongPress }: {
+function CoverShelfItem({ item, progress, onPress, onLongPress, accent }: {
   item: CoverShelfBook;
   progress?: BookCardProgress;
   onPress: () => void;
   onLongPress?: () => void;
+  accent?: boolean;
 }) {
   const pct = progress?.percentage ?? 0;
   const isFinished = item.status === "finished";
 
   return (
-    <Pressable style={cs.item} onPress={onPress} onLongPress={onLongPress} delayLongPress={300}>
+    <Pressable
+      style={({ pressed }) => [cs.item, accent && cs.itemAccent, pressed && cs.itemPressed]}
+      onPress={onPress} onLongPress={onLongPress} delayLongPress={300}>
       <View>
         {item.cover_url ? (
-          <Image source={{ uri: item.cover_url }} style={cs.cover} contentFit="cover" />
+          <Image source={{ uri: item.cover_url }} style={[cs.cover, accent && cs.coverAccent]} contentFit="cover" />
         ) : (
-          <View style={[cs.cover, cs.coverEmpty]}>
+          <View style={[cs.cover, accent && cs.coverAccent, cs.coverEmpty]}>
             <Text style={cs.coverEmoji}>📖</Text>
           </View>
         )}
@@ -95,6 +98,7 @@ export function CoverShelf({ title, data, progressMap, onPress, onLongPress, acc
             progress={progressMap?.get(item.id)}
             onPress={() => onPress(item.id)}
             onLongPress={onLongPress ? () => onLongPress(item.id) : undefined}
+            accent={accent}
           />
         )}
       />
@@ -107,10 +111,10 @@ export function CoverShelf({ title, data, progressMap, onPress, onLongPress, acc
 const cs = StyleSheet.create({
   container: { marginTop: t.space._3, marginBottom: t.space._1 },
   containerAccent: {
-    backgroundColor: "rgba(99,102,241,0.04)",
+    backgroundColor: "rgba(136,189,242,0.07)",
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: "rgba(99,102,241,0.10)",
+    borderColor: "rgba(136,189,242,0.18)",
     paddingTop: t.space._3,
     paddingBottom: t.space._1,
     marginTop: t.space._2,
@@ -139,6 +143,8 @@ const cs = StyleSheet.create({
   },
   list: { paddingHorizontal: t.space._4 },
   item: { width: 110, marginRight: t.space._3, alignItems: "flex-start" as const },
+  itemAccent: { width: 124 },
+  itemPressed: t.press.scale,
 
   cover: {
     width: 110,
@@ -146,6 +152,11 @@ const cs = StyleSheet.create({
     borderRadius: t.radius["2xl"],
     backgroundColor: t.color.glass.bg,
     ...t.shadow.medium,
+  },
+  coverAccent: {
+    width: 124,
+    height: 186,
+    borderRadius: t.radius["3xl"],
   },
   coverEmpty: {
     alignItems: "center" as const,
@@ -163,7 +174,7 @@ const cs = StyleSheet.create({
   },
   progressTrack: {
     height: 4, borderRadius: 2,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(56,73,89,0.28)",
     overflow: "hidden" as const,
   },
   progressFill: { height: 4, borderRadius: 2, backgroundColor: t.color.accent.light },
