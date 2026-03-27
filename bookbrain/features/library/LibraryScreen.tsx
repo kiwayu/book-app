@@ -631,7 +631,7 @@ export default function LibraryScreen() {
                       }
                     }}
                   >
-                    <IconSymbol name={sc.icon} size={14} color={isActive ? "#fff" : sc.color} />
+                    <IconSymbol name={sc.icon as any} size={14} color={isActive ? "#fff" : sc.color} />
                     <Text style={[s.smartChipText, isActive && s.smartChipTextActive]}>
                       {sc.name}
                     </Text>

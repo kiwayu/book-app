@@ -24,7 +24,7 @@ export async function addBookmark(
      VALUES (?, ?, ?, ?)`,
     [bookId, cfi, label ?? null, pageNumber ?? null]
   );
-  return result.insertId!;
+  return result.lastInsertRowId;
 }
 
 export async function updateBookmarkLabel(

@@ -43,7 +43,7 @@ export async function addHighlight(
      VALUES (?, ?, ?, ?, ?)`,
     [bookId, cfiRange, text, color, note ?? null]
   );
-  return result.insertId!;
+  return result.lastInsertRowId;
 }
 
 export async function updateHighlightNote(
@@ -114,7 +114,7 @@ export async function addNote(
      VALUES (?, ?, ?, datetime('now'), datetime('now'))`,
     [bookId, content, pageRef ?? null]
   );
-  return result.insertId!;
+  return result.lastInsertRowId;
 }
 
 export async function updateNote(

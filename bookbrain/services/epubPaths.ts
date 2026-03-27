@@ -1,12 +1,13 @@
-import * as FileSystem from "expo-file-system";
+import { Paths, File as ExpoFile } from "expo-file-system";
+import { readAsStringAsync } from "expo-file-system";
 
-const PATHS_FILE = (FileSystem.documentDirectory ?? "") + ".epub_paths.json";
+const PATHS_FILE = new ExpoFile(Paths.document, ".epub_paths.json");
 
 type EpubPathMap = Record<string, string>; // bookId → local/remote URI
 
 async function readMap(): Promise<EpubPathMap> {
   try {
-    const raw = await FileSystem.readAsStringAsync(PATHS_FILE);
+    const raw = await PATHS_FILE.text();
     return JSON.parse(raw) as EpubPathMap;
   } catch {
     return {};
@@ -14,7 +15,7 @@ async function readMap(): Promise<EpubPathMap> {
 }
 
 async function writeMap(map: EpubPathMap): Promise<void> {
-  await FileSystem.writeAsStringAsync(PATHS_FILE, JSON.stringify(map));
+  PATHS_FILE.write(JSON.stringify(map));
 }
 
 export async function getEpubPath(bookId: number): Promise<string | null> {
