@@ -23,7 +23,16 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "bundler": "metro",
+      "favicon": "./assets/images/favicon.png",
+      "name": "BookBrain",
+      "shortName": "BookBrain",
+      "description": "Track your reading, manage your library, and discover insights about your reading habits.",
+      "backgroundColor": "#EEF5FF",
+      "themeColor": "#5a9dd4",
+      "startUrl": "/",
+      "display": "standalone",
+      "orientation": "any"
     },
     "plugins": [
       "expo-router",

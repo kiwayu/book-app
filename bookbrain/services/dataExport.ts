@@ -118,7 +118,7 @@ export async function exportLibraryCSV(): Promise<string> {
     `SELECT
        b.title, b.authors, b.isbn, b.page_count,
        le.status, le.rating, le.date_added, le.started_at, le.finished_at,
-       b.genres, b.series_name, b.publisher, b.published_year
+       b.genres, b.series, b.publisher, b.published_year
      FROM books b
      LEFT JOIN library_entries le ON le.book_id = b.id`
   );
@@ -150,7 +150,7 @@ export async function exportLibraryCSV(): Promise<string> {
     "started_at",
     "finished_at",
     "genres",
-    "series_name",
+    "series",
     "publisher",
     "published_year",
   ];
@@ -185,22 +185,24 @@ export async function importFromJSON(
     return result;
   }
 
-  for (const book of data.books) {
+  type Row = Record<string, unknown> & { id?: number; book_id?: number; google_id?: string; title?: string; authors?: string };
+
+  for (const book of data.books as Row[]) {
     try {
       // Check for duplicate by google_id or title+authors
-      let existing: Record<string, unknown> | null = null;
+      let existing: { id: number } | null = null;
 
       if (book.google_id) {
-        existing = await getOne(
+        existing = await getOne<{ id: number }>(
           "SELECT id FROM books WHERE google_id = ?",
-          [book.google_id as string]
+          [book.google_id]
         );
       }
 
       if (!existing && book.title) {
-        existing = await getOne(
+        existing = await getOne<{ id: number }>(
           "SELECT id FROM books WHERE title = ? AND authors = ?",
-          [book.title as string, (book.authors as string) ?? ""]
+          [book.title, book.authors ?? ""]
         );
       }
 
@@ -210,9 +212,11 @@ export async function importFromJSON(
       }
 
       // Insert book
-      const cols = Object.keys(book);
+      const bookCopy: Record<string, unknown> = { ...book };
+      delete bookCopy.id;
+      const cols = Object.keys(bookCopy);
       const placeholders = cols.map(() => "?").join(", ");
-      const values = cols.map((c) => book[c] as string | number | null);
+      const values = cols.map((c) => bookCopy[c] as string | number | null);
 
       const inserted = await execute(
         `INSERT INTO books (${cols.join(", ")}) VALUES (${placeholders})`,
@@ -222,10 +226,10 @@ export async function importFromJSON(
       const oldBookId = book.id;
 
       // Import related library_entries
-      for (const entry of data.library_entries.filter(
+      for (const entry of (data.library_entries as Row[]).filter(
         (e) => e.book_id === oldBookId
       )) {
-        const entryCopy = { ...entry, book_id: newBookId };
+        const entryCopy: Record<string, unknown> = { ...entry, book_id: newBookId };
         delete entryCopy.id;
         const eCols = Object.keys(entryCopy);
         await execute(
@@ -235,10 +239,10 @@ export async function importFromJSON(
       }
 
       // Import related reading_sessions
-      for (const session of data.reading_sessions.filter(
+      for (const session of (data.reading_sessions as Row[]).filter(
         (s) => s.book_id === oldBookId
       )) {
-        const sessionCopy = { ...session, book_id: newBookId };
+        const sessionCopy: Record<string, unknown> = { ...session, book_id: newBookId };
         delete sessionCopy.id;
         const sCols = Object.keys(sessionCopy);
         await execute(
@@ -248,10 +252,10 @@ export async function importFromJSON(
       }
 
       // Import related reading_progress
-      for (const progress of data.reading_progress.filter(
+      for (const progress of (data.reading_progress as Row[]).filter(
         (p) => p.book_id === oldBookId
       )) {
-        const progressCopy = { ...progress, book_id: newBookId };
+        const progressCopy: Record<string, unknown> = { ...progress, book_id: newBookId };
         delete progressCopy.id;
         const pCols = Object.keys(progressCopy);
         await execute(

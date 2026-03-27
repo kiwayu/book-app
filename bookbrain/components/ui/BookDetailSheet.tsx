@@ -178,40 +178,42 @@ export function BookDetailSheet({
   }, [book, newNoteText]);
 
   if (!book) return null;
+  // Non-null alias for use in nested render functions (TS can't narrow through closures)
+  const b = book;
 
-  const status = book.entry.status;
+  const status = b.entry.status;
   const statusInfo = getStatusInfo(status);
 
   // ── Action buttons (same logic as original) ──
   const actions: ActionDef[] = [];
 
   if (status === "want_to_read" && onStartReading) {
-    actions.push({ icon: "▶", label: "Start Reading", color: t.color.accent.lighter, bg: t.color.accent.bg, onPress: () => onStartReading(book.id) });
+    actions.push({ icon: "▶", label: "Start Reading", color: t.color.accent.lighter, bg: t.color.accent.bg, onPress: () => onStartReading(b.id) });
   }
   if (status === "reading" && onMarkFinished) {
-    actions.push({ icon: "✓", label: "Mark Finished", color: t.color.success.lighter, bg: t.color.success.bg, onPress: () => onMarkFinished(book.id) });
+    actions.push({ icon: "✓", label: "Mark Finished", color: t.color.success.lighter, bg: t.color.success.bg, onPress: () => onMarkFinished(b.id) });
   }
   if ((status === "dnf" || status === "finished") && onStartReading) {
-    actions.push({ icon: "▶", label: status === "dnf" ? "Resume Reading" : "Reread", color: t.color.accent.lighter, bg: t.color.accent.bg, onPress: () => onStartReading(book.id) });
+    actions.push({ icon: "▶", label: status === "dnf" ? "Resume Reading" : "Reread", color: t.color.accent.lighter, bg: t.color.accent.bg, onPress: () => onStartReading(b.id) });
   }
   if (onOpenReader) {
-    actions.push({ icon: "📖", label: "Open in Reader", color: t.color.text.secondary, bg: t.color.glass.bgHover, onPress: () => onOpenReader(book.id) });
+    actions.push({ icon: "📖", label: "Open in Reader", color: t.color.text.secondary, bg: t.color.glass.bgHover, onPress: () => onOpenReader(b.id) });
   }
   if (status === "reading" && onMarkDNF) {
-    actions.push({ icon: "✕", label: "Did Not Finish", color: t.color.error.light, bg: t.color.error.bg, onPress: () => onMarkDNF(book.id) });
+    actions.push({ icon: "✕", label: "Did Not Finish", color: t.color.error.light, bg: t.color.error.bg, onPress: () => onMarkDNF(b.id) });
   }
 
   const handleDelete = onDeleteBook
     ? () => {
         Alert.alert(
           "Remove from Library",
-          `Remove "${book.title}" from your library? This cannot be undone.`,
+          `Remove "${b.title}" from your library? This cannot be undone.`,
           [
             { text: "Cancel", style: "cancel" },
             {
               text: "Remove",
               style: "destructive",
-              onPress: () => { onDeleteBook(book.id); onClose(); },
+              onPress: () => { onDeleteBook(b.id); onClose(); },
             },
           ]
         );
@@ -237,10 +239,10 @@ export function BookDetailSheet({
   const avgPagesPerSession = totalSessions > 0 ? Math.round(totalPages / totalSessions) : 0;
 
   // ── Genre tags ──
-  const genres: string[] = book.genres ? book.genres.split(",").map(g => g.trim()).filter(Boolean) : [];
+  const genres: string[] = b.genres ? b.genres.split(",").map(g => g.trim()).filter(Boolean) : [];
 
   // ── Progress percentage ──
-  const pct = readingProgress?.percentage ?? progress?.pct ?? 0;
+  const pct = readingProgress?.percentage ?? progress?.percentage ?? 0;
   const currentPage = readingProgress?.current_page ?? 0;
 
   /* ── Render Tabs ──────────────────────────────── */
@@ -250,28 +252,28 @@ export function BookDetailSheet({
       <View style={ds.tabContent}>
         {/* Metadata */}
         <View style={ds.metaSection}>
-          {book.publisher && (
+          {b.publisher && (
             <View style={ds.metaRow}>
               <Text style={ds.metaLabel}>Publisher</Text>
-              <Text style={ds.metaValue}>{book.publisher}</Text>
+              <Text style={ds.metaValue}>{b.publisher}</Text>
             </View>
           )}
-          {book.published_year && (
+          {b.published_year && (
             <View style={ds.metaRow}>
               <Text style={ds.metaLabel}>Published</Text>
-              <Text style={ds.metaValue}>{book.published_year}</Text>
+              <Text style={ds.metaValue}>{b.published_year}</Text>
             </View>
           )}
-          {book.isbn && (
+          {b.isbn && (
             <View style={ds.metaRow}>
               <Text style={ds.metaLabel}>ISBN</Text>
-              <Text style={ds.metaValue}>{book.isbn}</Text>
+              <Text style={ds.metaValue}>{b.isbn}</Text>
             </View>
           )}
-          {book.page_count && (
+          {b.page_count && (
             <View style={ds.metaRow}>
               <Text style={ds.metaLabel}>Pages</Text>
-              <Text style={ds.metaValue}>{book.page_count}</Text>
+              <Text style={ds.metaValue}>{b.page_count}</Text>
             </View>
           )}
         </View>
@@ -288,21 +290,21 @@ export function BookDetailSheet({
         )}
 
         {/* Description */}
-        {book.description && (
+        {b.description && (
           <Pressable onPress={() => setDescExpanded(!descExpanded)} style={ds.descSection}>
             <Text style={ds.descText} numberOfLines={descExpanded ? undefined : 3}>
-              {book.description}
+              {b.description}
             </Text>
             <Text style={ds.descToggle}>{descExpanded ? "Show less" : "Show more"}</Text>
           </Pressable>
         )}
 
         {/* Series info */}
-        {book.series && (
+        {b.series && (
           <View style={ds.seriesRow}>
             <IconSymbol name="books.vertical" size={14} color={t.color.text.tertiary} />
             <Text style={ds.seriesText}>
-              {book.series}{book.series_index != null ? ` #${book.series_index}` : ""}
+              {b.series}{b.series_index != null ? ` #${b.series_index}` : ""}
             </Text>
           </View>
         )}
@@ -337,9 +339,9 @@ export function BookDetailSheet({
         <View style={ds.progressSection}>
           <View style={ds.progressHeader}>
             <Text style={ds.progressPct}>{Math.round(pct)}%</Text>
-            {book.page_count ? (
+            {b.page_count ? (
               <Text style={ds.progressPages}>
-                {currentPage} / {book.page_count} pages
+                {currentPage} / {b.page_count} pages
               </Text>
             ) : null}
           </View>
@@ -352,9 +354,9 @@ export function BookDetailSheet({
         <Text style={ds.sectionTitle}>Reading Timeline</Text>
         <Timeline
           events={[
-            { label: "Added to Library", date: book.entry.date_added, active: true },
-            { label: "Started Reading", date: book.entry.started_at, active: status === "reading" },
-            { label: "Finished", date: book.entry.finished_at, active: status === "finished" },
+            { label: "Added to Library", date: b.entry.date_added, active: true },
+            { label: "Started Reading", date: b.entry.started_at, active: status === "reading" },
+            { label: "Finished", date: b.entry.finished_at, active: status === "finished" },
           ]}
         />
 
@@ -380,16 +382,16 @@ export function BookDetailSheet({
         )}
 
         {/* Reread count */}
-        {book.entry.reread_count > 0 && (
+        {b.entry.reread_count > 0 && (
           <View style={ds.rereadRow}>
             <IconSymbol name="arrow.counterclockwise" size={14} color={t.color.accent.base} />
             <Text style={ds.rereadText}>
-              Reread {book.entry.reread_count} time{book.entry.reread_count > 1 ? "s" : ""}
+              Reread {b.entry.reread_count} time{b.entry.reread_count > 1 ? "s" : ""}
             </Text>
           </View>
         )}
 
-        {totalSessions === 0 && !book.entry.started_at && (
+        {totalSessions === 0 && !b.entry.started_at && (
           <View style={ds.emptyState}>
             <Text style={ds.emptyText}>No reading sessions yet. Start reading to track your progress.</Text>
           </View>
@@ -518,12 +520,12 @@ export function BookDetailSheet({
 
           {/* Book Header */}
           <View style={ds.bookHeader}>
-            {book.cover_url && (
-              <Image source={{ uri: book.cover_url }} style={ds.coverThumb} />
+            {b.cover_url && (
+              <Image source={{ uri: b.cover_url }} style={ds.coverThumb} />
             )}
             <View style={ds.bookInfo}>
-              <Text style={ds.bookTitle} numberOfLines={2}>{book.title}</Text>
-              <Text style={ds.bookAuthor} numberOfLines={1}>{book.authors || "Unknown Author"}</Text>
+              <Text style={ds.bookTitle} numberOfLines={2}>{b.title}</Text>
+              <Text style={ds.bookAuthor} numberOfLines={1}>{b.authors || "Unknown Author"}</Text>
               <View style={[ds.statusBadge, { backgroundColor: statusInfo.bg }]}>
                 <Text style={[ds.statusText, { color: statusInfo.color }]}>{statusInfo.label}</Text>
               </View>

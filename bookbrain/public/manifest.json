@@ -1,0 +1,19 @@
+{
+  "name": "BookBrain",
+  "short_name": "BookBrain",
+  "description": "Track your reading, manage your library, and discover insights about your reading habits.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#EEF5FF",
+  "theme_color": "#5a9dd4",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/assets/images/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["books", "lifestyle", "productivity"]
+}

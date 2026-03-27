@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Modal,
   ScrollView,
+  Alert,
 } from "react-native";
 import { Image } from "expo-image";
 import {
@@ -19,6 +20,9 @@ import {
 } from "@/services/googleBooks";
 import { useLibraryStore } from "@/store/libraryStore";
 import { t } from "@/theme";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+import { getSetting, setSetting } from "@/services/settings";
 
 const DEBOUNCE_MS = 350;
 
@@ -231,9 +235,16 @@ export default function SearchScreen() {
   const [addedIds,     setAddedIds]     = useState<Set<string>>(new Set());
   const [hasSearched,  setHasSearched]  = useState(false);
   const [selectedBook, setSelectedBook] = useState<GoogleBook | null>(null);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
 
   const addBook  = useLibraryStore((s) => s.addBook);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    getSetting("recentSearches" as any).then((val: any) => {
+      if (Array.isArray(val)) setRecentSearches(val);
+    }).catch(() => {});
+  }, []);
 
   const runSearch = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -245,13 +256,18 @@ export default function SearchScreen() {
     try {
       const data = await searchBooks(trimmed);
       setResults(data);
+      if (data.length > 0) {
+        const updated = [trimmed, ...recentSearches.filter(s => s !== trimmed)].slice(0, 8);
+        setRecentSearches(updated);
+        setSetting("recentSearches" as any, updated as any);
+      }
     } catch {
       setError("Search failed. Please try again.");
       setResults([]);
     } finally {
       setIsSearching(false);
     }
-  }, []);
+  }, [recentSearches]);
 
   const handleChangeText = useCallback(
     (text: string) => {
@@ -271,13 +287,34 @@ export default function SearchScreen() {
   }, []);
 
   const handleAdd = useCallback(
-    async (book: GoogleBook) => {
-      try {
-        await addBook(book, "want_to_read");
-        setAddedIds((prev) => new Set(prev).add(book.id));
-      } catch { /* duplicate */ }
+    (book: GoogleBook) => {
+      Alert.alert(
+        "Add to Library",
+        `"${book.title}"`,
+        [
+          {
+            text: "Want to Read",
+            onPress: async () => {
+              try {
+                await addBook(book, "want_to_read");
+                setAddedIds((prev) => new Set(prev).add(book.id));
+              } catch {}
+            },
+          },
+          {
+            text: "Currently Reading",
+            onPress: async () => {
+              try {
+                await addBook(book, "reading");
+                setAddedIds((prev) => new Set(prev).add(book.id));
+              } catch {}
+            },
+          },
+          { text: "Cancel", style: "cancel" },
+        ]
+      );
     },
-    [addBook]
+    [addBook, recentSearches]
   );
 
   const showEmpty = hasSearched && !isSearching && !error && results.length === 0;
@@ -293,7 +330,7 @@ export default function SearchScreen() {
       {/* Search bar */}
       <View style={s.searchBarWrap}>
         <View style={s.searchBar}>
-          <Text style={s.searchIcon}>🔍</Text>
+          <IconSymbol name="magnifyingglass" size={16} color={t.color.text.muted} />
           <TextInput
             style={s.searchInput}
             placeholder="Title, author, or ISBN…"
@@ -348,12 +385,43 @@ export default function SearchScreen() {
         </View>
       )}
 
-      {/* Idle */}
+      {/* Idle / Recent Searches */}
       {!hasSearched && !isSearching && results.length === 0 && (
         <View style={s.centerState}>
-          <Text style={s.emptyEmoji}>🔎</Text>
-          <Text style={s.stateText}>Search for books</Text>
-          <Text style={s.stateSubtext}>Tap a result to see full details and synopsis</Text>
+          {recentSearches.length > 0 ? (
+            <View style={s.recentSection}>
+              <Text style={s.recentTitle}>Recent Searches</Text>
+              {recentSearches.map((term, i) => (
+                <Pressable
+                  key={`${term}-${i}`}
+                  style={s.recentRow}
+                  onPress={() => {
+                    setQuery(term);
+                    runSearch(term);
+                  }}
+                >
+                  <IconSymbol name="clock" size={15} color={t.color.text.muted} />
+                  <Text style={s.recentText}>{term}</Text>
+                  <Text style={s.recentChevron}>›</Text>
+                </Pressable>
+              ))}
+              <Pressable
+                style={s.clearRecentBtn}
+                onPress={() => {
+                  setRecentSearches([]);
+                  setSetting("recentSearches" as any, [] as any);
+                }}
+              >
+                <Text style={s.clearRecentText}>Clear Recent</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              <IconSymbol name="magnifyingglass" size={40} color={t.color.text.faint} />
+              <Text style={s.stateText}>Search for books</Text>
+              <Text style={s.stateSubtext}>Find books by title, author, or ISBN</Text>
+            </>
+          )}
         </View>
       )}
 
@@ -576,6 +644,40 @@ const s = StyleSheet.create({
     color: t.color.text.faint,
     fontSize: 22,
     fontWeight: "300",
+  },
+  recentSection: {
+    width: "100%",
+    paddingHorizontal: t.space._2,
+  },
+  recentTitle: {
+    ...t.font.label,
+    marginBottom: t.space._3,
+  },
+  recentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: t.space._3,
+    paddingHorizontal: t.space._3,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: t.color.border.subtle,
+    gap: t.space._3,
+  },
+  recentText: {
+    ...t.font.body,
+    flex: 1,
+  },
+  recentChevron: {
+    color: t.color.text.faint,
+    fontSize: 18,
+    fontWeight: "300",
+  },
+  clearRecentBtn: {
+    alignItems: "center",
+    paddingVertical: t.space._4,
+  },
+  clearRecentText: {
+    ...t.font.caption,
+    color: t.color.text.muted,
   },
 });
 

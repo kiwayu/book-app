@@ -13,7 +13,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Sharing from "expo-sharing";
-import * as FileSystem from "expo-file-system";
+import { Paths, File as ExpoFile } from "expo-file-system";
+import { readAsStringAsync } from "expo-file-system";
 import * as DocumentPicker from "expo-document-picker";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { t } from "@/theme";
@@ -389,11 +390,11 @@ export default function SettingsTab() {
   const handleExportJSON = useCallback(async () => {
     try {
       const json = await exportLibraryJSON();
-      const path = (FileSystem.cacheDirectory ?? "") + "bookbrain_export.json";
-      await FileSystem.writeAsStringAsync(path, json);
+      const file = new ExpoFile(Paths.cache, "bookbrain_export.json");
+      file.write(json);
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
-        await Sharing.shareAsync(path, { mimeType: "application/json", dialogTitle: "Export Library" });
+        await Sharing.shareAsync(file.uri, { mimeType: "application/json", dialogTitle: "Export Library" });
       } else {
         Alert.alert("Export Ready", "File saved to cache. Sharing not available on this device.");
       }
@@ -405,11 +406,11 @@ export default function SettingsTab() {
   const handleExportCSV = useCallback(async () => {
     try {
       const csv = await exportLibraryCSV();
-      const path = (FileSystem.cacheDirectory ?? "") + "bookbrain_export.csv";
-      await FileSystem.writeAsStringAsync(path, csv);
+      const file = new ExpoFile(Paths.cache, "bookbrain_export.csv");
+      file.write(csv);
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
-        await Sharing.shareAsync(path, { mimeType: "text/csv", dialogTitle: "Export Library" });
+        await Sharing.shareAsync(file.uri, { mimeType: "text/csv", dialogTitle: "Export Library" });
       } else {
         Alert.alert("Export Ready", "File saved to cache. Sharing not available on this device.");
       }
@@ -428,7 +429,7 @@ export default function SettingsTab() {
       if (result.canceled || !result.assets?.[0]) return;
 
       const file = result.assets[0];
-      const content = await FileSystem.readAsStringAsync(file.uri);
+      const content = await readAsStringAsync(file.uri);
 
       let importResult: ImportResult;
 
