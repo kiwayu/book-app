@@ -39,6 +39,12 @@ import {
 } from "@/components/ui/FilterSheet";
 import { getAll } from "@/db/database";
 import { loadPrefs, savePrefs, type LibraryPrefs } from "@/services/preferences";
+import {
+  getSmartCollectionsWithCounts,
+  getSmartCollectionBookIds,
+  SMART_COLLECTIONS,
+  type SmartCollectionWithCount,
+} from "@/services/smartCollections";
 
 /* ── Types & constants ─────────────────────────────── */
 
@@ -269,6 +275,10 @@ export default function LibraryScreen() {
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
 
+  const [smartCollections, setSmartCollections] = useState<SmartCollectionWithCount[]>([]);
+  const [activeSmartCollection, setActiveSmartCollection] = useState<string | null>(null);
+  const [smartCollectionBookIds, setSmartCollectionBookIds] = useState<number[]>([]);
+
   const [detailBook, setDetailBook] = useState<BookWithEntry | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
@@ -299,7 +309,10 @@ export default function LibraryScreen() {
   }, [sortKey, sortDir, activeTab, filters, prefsLoaded]);
 
   /* ── Data loading ────────────────────────────────── */
-  useEffect(() => { loadLibrary(); }, [loadLibrary]);
+  useEffect(() => {
+    loadLibrary();
+    getSmartCollectionsWithCounts().then(setSmartCollections);
+  }, [loadLibrary]);
 
   useEffect(() => {
     getAll<ProgressRow>("SELECT book_id, current_page, percentage FROM reading_progress").then((rows) => {
@@ -375,6 +388,10 @@ export default function LibraryScreen() {
 
   const filteredSorted = useMemo(() => {
     let result = [...tabBooks];
+    // If a smart collection is active, filter to those book IDs
+    if (activeSmartCollection) {
+      result = result.filter(b => smartCollectionBookIds.includes(b.id));
+    }
     const q = searchQuery.trim().toLowerCase();
     if (q) result = result.filter((b) => b.title.toLowerCase().includes(q) || (b.authors?.toLowerCase().includes(q) ?? false));
     if (filters.status.length > 0) result = result.filter((b) => filters.status.includes(b.entry.status));
@@ -397,7 +414,7 @@ export default function LibraryScreen() {
       return sortDir === "desc" ? -cmp : cmp;
     });
     return result;
-  }, [tabBooks, searchQuery, filters, sortKey, sortDir, progressMap, bookTagsMap]);
+  }, [tabBooks, searchQuery, filters, sortKey, sortDir, progressMap, bookTagsMap, activeSmartCollection, smartCollectionBookIds]);
 
   const letterGroups = useMemo(() => {
     if (activeTab === "all" || isControlsActive) return [];
@@ -577,6 +594,57 @@ export default function LibraryScreen() {
         )}
 
         {/* ── Content ────────────────────────────────── */}
+        {/* Smart Collections — shown only on "All" tab */}
+        {activeTab === "all" && smartCollections.length > 0 && (
+          <View style={s.smartCollectionsWrap}>
+            <Text style={s.smartCollectionsLabel}>Collections</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={s.smartCollectionsRow}
+            >
+              {activeSmartCollection && (
+                <Pressable
+                  style={[s.smartChip, s.smartChipClear]}
+                  onPress={() => {
+                    setActiveSmartCollection(null);
+                    setSmartCollectionBookIds([]);
+                  }}
+                >
+                  <Text style={s.smartChipClearText}>Clear</Text>
+                </Pressable>
+              )}
+              {smartCollections.map((sc) => {
+                const isActive = activeSmartCollection === sc.id;
+                return (
+                  <Pressable
+                    key={sc.id}
+                    style={[s.smartChip, isActive && s.smartChipActive]}
+                    onPress={async () => {
+                      if (isActive) {
+                        setActiveSmartCollection(null);
+                        setSmartCollectionBookIds([]);
+                      } else {
+                        setActiveSmartCollection(sc.id);
+                        const ids = await getSmartCollectionBookIds(sc.id);
+                        setSmartCollectionBookIds(ids);
+                      }
+                    }}
+                  >
+                    <IconSymbol name={sc.icon} size={14} color={isActive ? "#fff" : sc.color} />
+                    <Text style={[s.smartChipText, isActive && s.smartChipTextActive]}>
+                      {sc.name}
+                    </Text>
+                    <Text style={[s.smartChipCount, isActive && s.smartChipCountActive]}>
+                      {sc.count}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
         {isControlsActive ? (
           <View style={s.flatSection}>
             {filteredSorted.length > 0 ? renderCompactRows(filteredSorted) : (
@@ -586,7 +654,7 @@ export default function LibraryScreen() {
               </View>
             )}
           </View>
-        ) : activeTab === "all" ? (
+        ) : activeTab === "all" && !activeSmartCollection ? (
           <>
             <CoverShelf title="Currently Reading" data={currentlyReading} progressMap={progressMap}
               onPress={openDetail} onLongPress={openDetail} accent />
@@ -615,6 +683,15 @@ export default function LibraryScreen() {
               <Text style={s.newFolderPlus}>+</Text><Text style={s.newFolderLabel}>New Folder</Text>
             </Pressable>
           </>
+        ) : activeTab === "all" && activeSmartCollection ? (
+          <View style={s.flatSection}>
+            {filteredSorted.length > 0 ? renderCompactRows(filteredSorted) : (
+              <View style={s.noResults}>
+                <Text style={s.noResultsEmoji}>📭</Text>
+                <Text style={s.noResultsText}>No books in this collection</Text>
+              </View>
+            )}
+          </View>
         ) : (
           <View style={s.alphabetContent}>
             {letterGroups.length === 0 ? (
@@ -739,6 +816,59 @@ const s = StyleSheet.create({
   letterLine: {
     flex: 1, height: StyleSheet.hairlineWidth,
     backgroundColor: "rgba(90,157,212,0.22)", marginLeft: t.space._2,
+  },
+
+  /* Smart Collections */
+  smartCollectionsWrap: {
+    marginBottom: t.space._4,
+  },
+  smartCollectionsLabel: {
+    ...t.font.label,
+    paddingHorizontal: t.space._2,
+    marginBottom: t.space._2,
+  },
+  smartCollectionsRow: {
+    paddingHorizontal: t.space._1,
+    gap: t.space._2,
+  },
+  smartChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: t.space._1,
+    paddingVertical: t.space._2,
+    paddingHorizontal: t.space._3,
+    borderRadius: t.radius.pill,
+    backgroundColor: t.color.bg.raised,
+    borderWidth: 1,
+    borderColor: t.color.border.subtle,
+  },
+  smartChipActive: {
+    backgroundColor: t.color.accent.base,
+    borderColor: t.color.accent.base,
+  },
+  smartChipClear: {
+    backgroundColor: t.color.bg.overlay,
+    borderColor: t.color.border.strong,
+  },
+  smartChipClearText: {
+    ...t.font.caption,
+    color: t.color.text.secondary,
+  },
+  smartChipText: {
+    ...t.font.caption,
+    color: t.color.text.secondary,
+  },
+  smartChipTextActive: {
+    color: "#fff",
+    fontWeight: "700",
+  },
+  smartChipCount: {
+    ...t.font.micro,
+    color: t.color.text.muted,
+    marginLeft: t.space._1,
+  },
+  smartChipCountActive: {
+    color: "rgba(255,255,255,0.8)",
   },
 });
 

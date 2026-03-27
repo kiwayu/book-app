@@ -13,6 +13,7 @@ import {
   StyleSheet,
   Animated,
   AppState,
+  Alert,
   Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -30,6 +31,19 @@ import {
   updateProgress,
   getProgress,
 } from "@/services/readingTracker";
+import {
+  addHighlight,
+  getHighlightsForBook,
+  deleteHighlight,
+  HIGHLIGHT_COLORS,
+  type Highlight,
+} from "@/services/highlights";
+import {
+  toggleBookmark,
+  getBookmarksForBook,
+  type Bookmark,
+} from "@/services/bookmarks";
+import { IconSymbol } from "@/components/ui/icon-symbol";
 import { t } from "@/theme";
 
 /* ── Types ──────────────────────────────────────────── */
@@ -149,6 +163,12 @@ export default function ReaderScreen({
   const [percentage,    setPercentage]    = useState(0);
   const [currentPage,   setCurrentPage]   = useState(0);
   const [totalPages,    setTotalPages]    = useState(0);
+  const [highlights,    setHighlights]    = useState<Highlight[]>([]);
+  const [bookmarks,     setBookmarks]     = useState<Bookmark[]>([]);
+  const [showBookmarks, setShowBookmarks] = useState(false);
+  const [showHighlights,setShowHighlights]= useState(false);
+  const [sessionStartTime] = useState(Date.now());
+  const [sessionPages,  setSessionPages]  = useState(0);
 
   const sheetAnim = useRef(new Animated.Value(0)).current;
 
@@ -169,6 +189,13 @@ export default function ReaderScreen({
       setHtmlReady(true);
     });
   }, [bookId, epubUrl]);
+
+  /* ── Load highlights & bookmarks ─────────────────── */
+
+  useEffect(() => {
+    getHighlightsForBook(bookId).then(setHighlights);
+    getBookmarksForBook(bookId).then(setBookmarks);
+  }, [bookId]);
 
   /* ── Session management ─────────────────────────── */
 
@@ -313,10 +340,34 @@ export default function ReaderScreen({
     [inject, showAndReset]
   );
 
+  /* ── Bookmark toggle ───────────────────────────── */
+
+  const handleToggleBookmark = useCallback(async () => {
+    // Request current CFI from the WebView
+    inject("window.readerApi.getCurrentCfi()");
+  }, [inject]);
+
+  /* ── Session summary on close ──────────────────── */
+
+  const handleClose = useCallback(() => {
+    const elapsed = Date.now() - sessionStartTime;
+    const mins = Math.round(elapsed / 60000);
+    const pagesRead = Math.max(0, latestPageRef.current - startPageRef.current);
+    if (mins >= 1 || pagesRead > 0) {
+      Alert.alert(
+        "Session Summary",
+        `Time: ${mins < 1 ? "< 1" : mins} min\nPages read: ${pagesRead}`,
+        [{ text: "OK", onPress: onClose }]
+      );
+    } else {
+      onClose?.();
+    }
+  }, [sessionStartTime, onClose]);
+
   /* ── Message handler ────────────────────────────── */
 
   const handleMessage = useCallback(
-    (event: WebViewMessageEvent) => {
+    async (event: WebViewMessageEvent) => {
       try {
         const msg = JSON.parse(event.nativeEvent.data);
         switch (msg.type) {
@@ -346,6 +397,24 @@ export default function ReaderScreen({
               );
             }
             break;
+          case "currentCfi": {
+            const cfi = msg.cfi;
+            if (cfi) {
+              await toggleBookmark(bookId, cfi, currentPage || undefined);
+              const updated = await getBookmarksForBook(bookId);
+              setBookmarks(updated);
+            }
+            break;
+          }
+          case "textSelected": {
+            if (msg.text && msg.cfiRange) {
+              await addHighlight(bookId, msg.cfiRange, msg.text);
+              const updated = await getHighlightsForBook(bookId);
+              setHighlights(updated);
+              inject("window.readerApi.clearSelection()");
+            }
+            break;
+          }
           case "error":
             console.warn("Reader error:", msg.message);
             break;
@@ -354,7 +423,7 @@ export default function ReaderScreen({
         /* malformed message */
       }
     },
-    [saveProgressDebounced, showAndReset]
+    [saveProgressDebounced, showAndReset, bookId, currentPage, inject]
   );
 
   /* ── Derived values ─────────────────────────────── */
@@ -401,19 +470,31 @@ export default function ReaderScreen({
       </View>
 
       {/* ── Top bar ──────────────────────────────── */}
-      {showControls && !showSettings && !showToc && (
+      {showControls && !showSettings && !showToc && !showBookmarks && !showHighlights && (
         <SafeAreaView
           style={[s.topBar, { backgroundColor: barBg, borderBottomColor: barBorder }]}
           pointerEvents="box-none"
         >
           <View style={s.topBarInner} pointerEvents="auto">
-            <Pressable onPress={onClose} style={s.barBtn} onPressIn={keepAlive}>
+            <Pressable onPress={handleClose} style={s.barBtn} onPressIn={keepAlive}>
               <Text style={[s.barBtnIcon, { color: fg }]}>←</Text>
             </Pressable>
 
             <Text style={[s.chapterTitle, { color: fg }]} numberOfLines={1}>
               {chapter || title || ""}
             </Text>
+
+            <Pressable
+              onPress={handleToggleBookmark}
+              style={s.barBtn}
+              onPressIn={keepAlive}
+            >
+              <IconSymbol
+                name="bookmark.fill"
+                size={18}
+                color={fg}
+              />
+            </Pressable>
 
             <Pressable
               onPress={() => { clearHideTimer(); setShowToc(true); }}
@@ -427,7 +508,7 @@ export default function ReaderScreen({
       )}
 
       {/* ── Bottom bar ───────────────────────────── */}
-      {showControls && !showSettings && !showToc && (
+      {showControls && !showSettings && !showToc && !showBookmarks && !showHighlights && (
         <SafeAreaView
           style={[s.bottomBar, { backgroundColor: barBg, borderTopColor: barBorder }]}
           pointerEvents="box-none"
@@ -464,6 +545,19 @@ export default function ReaderScreen({
 
               <Pressable onPress={openSettings} style={s.settingsBtn} onPressIn={keepAlive}>
                 <Text style={[s.settingsBtnText, { color: accent }]}>Aa</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => { clearHideTimer(); setShowHighlights(true); }}
+                style={s.barBtn}
+                onPressIn={keepAlive}
+              >
+                <IconSymbol name="highlighter" size={18} color={accent} />
+                {highlights.length > 0 && (
+                  <View style={s.badge}>
+                    <Text style={s.badgeText}>{highlights.length}</Text>
+                  </View>
+                )}
               </Pressable>
 
               <Pressable onPress={nextPage} style={s.navBtn} onPressIn={keepAlive}>
@@ -650,6 +744,112 @@ export default function ReaderScreen({
                         {item.label}
                       </Text>
                       <Text style={s.tocItemChevron}>›</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              )}
+            </View>
+          </SafeAreaView>
+        </View>
+      )}
+
+      {/* ── Bookmarks overlay ──────────────────────── */}
+      {showBookmarks && (
+        <View style={StyleSheet.absoluteFill}>
+          <Pressable
+            style={[StyleSheet.absoluteFill, s.tocOverlay]}
+            onPress={() => { setShowBookmarks(false); showAndReset(); }}
+          />
+          <SafeAreaView style={s.tocContainer} pointerEvents="box-none">
+            <View style={s.tocSheet} pointerEvents="auto">
+              <View style={s.tocHeader}>
+                <Text style={s.tocTitle}>Bookmarks</Text>
+                <Pressable
+                  onPress={() => { setShowBookmarks(false); showAndReset(); }}
+                  style={s.tocCloseBtn}
+                >
+                  <Text style={s.tocCloseBtnText}>✕</Text>
+                </Pressable>
+              </View>
+              {bookmarks.length === 0 ? (
+                <View style={s.tocEmpty}>
+                  <Text style={s.tocEmptyText}>No bookmarks yet</Text>
+                </View>
+              ) : (
+                <ScrollView style={s.tocScroll} showsVerticalScrollIndicator={false}>
+                  {bookmarks.map((bm) => (
+                    <Pressable
+                      key={bm.id}
+                      onPress={() => {
+                        inject(`window.readerApi.goToCfi(${JSON.stringify(bm.cfi)})`);
+                        setShowBookmarks(false);
+                        showAndReset();
+                      }}
+                      style={({ pressed }) => [s.tocItem, pressed && s.tocItemPressed]}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.tocItemText}>
+                          {bm.label || `Page ${bm.page_number || "?"}`}
+                        </Text>
+                        <Text style={[s.statText, { color: THEME_SUB[theme] }]}>
+                          {new Date(bm.created_at).toLocaleDateString()}
+                        </Text>
+                      </View>
+                      <Text style={s.tocItemChevron}>›</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              )}
+            </View>
+          </SafeAreaView>
+        </View>
+      )}
+
+      {/* ── Highlights overlay ─────────────────────── */}
+      {showHighlights && (
+        <View style={StyleSheet.absoluteFill}>
+          <Pressable
+            style={[StyleSheet.absoluteFill, s.tocOverlay]}
+            onPress={() => { setShowHighlights(false); showAndReset(); }}
+          />
+          <SafeAreaView style={s.tocContainer} pointerEvents="box-none">
+            <View style={s.tocSheet} pointerEvents="auto">
+              <View style={s.tocHeader}>
+                <Text style={s.tocTitle}>Highlights</Text>
+                <Pressable
+                  onPress={() => { setShowHighlights(false); showAndReset(); }}
+                  style={s.tocCloseBtn}
+                >
+                  <Text style={s.tocCloseBtnText}>✕</Text>
+                </Pressable>
+              </View>
+              {highlights.length === 0 ? (
+                <View style={s.tocEmpty}>
+                  <Text style={s.tocEmptyText}>Select text while reading to highlight</Text>
+                </View>
+              ) : (
+                <ScrollView style={s.tocScroll} showsVerticalScrollIndicator={false}>
+                  {highlights.map((hl) => (
+                    <Pressable
+                      key={hl.id}
+                      onPress={() => {
+                        inject(`window.readerApi.goToCfi(${JSON.stringify(hl.cfi_range)})`);
+                        setShowHighlights(false);
+                        showAndReset();
+                      }}
+                      style={({ pressed }) => [s.highlightItem, pressed && s.tocItemPressed]}
+                    >
+                      <View style={[s.highlightDot, { backgroundColor: hl.color }]} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.highlightText} numberOfLines={3}>
+                          &ldquo;{hl.text}&rdquo;
+                        </Text>
+                        {hl.note && (
+                          <Text style={s.highlightNote} numberOfLines={1}>
+                            {hl.note}
+                          </Text>
+                        )}
+                      </View>
                     </Pressable>
                   ))}
                 </ScrollView>
@@ -1078,5 +1278,49 @@ const s = StyleSheet.create({
     fontSize: 20,
     fontWeight: "300",
     marginLeft: t.space._2,
+  },
+
+  /* highlights & bookmarks */
+  badge: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    backgroundColor: t.color.accent.base,
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  badgeText: {
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "800",
+  },
+  highlightItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingHorizontal: t.space._5,
+    paddingVertical: t.space._4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: t.color.border.subtle,
+    gap: t.space._3,
+  },
+  highlightDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginTop: 5,
+  },
+  highlightText: {
+    ...t.font.body,
+    fontStyle: "italic",
+    lineHeight: 20,
+  },
+  highlightNote: {
+    ...t.font.caption,
+    color: t.color.text.tertiary,
+    marginTop: t.space._1,
   },
 });

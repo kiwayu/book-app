@@ -91,6 +91,58 @@ const CREATE_FOLDER_BOOKS = `
   );
 `;
 
+const CREATE_APP_SETTINGS = `
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+`;
+
+const CREATE_GOALS = `
+  CREATE TABLE IF NOT EXISTS goals (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    type       TEXT    NOT NULL CHECK (type IN ('yearly_books', 'monthly_books', 'daily_pages', 'daily_minutes')),
+    target     INTEGER NOT NULL,
+    year       INTEGER NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(type, year)
+  );
+`;
+
+const CREATE_BOOK_NOTES = `
+  CREATE TABLE IF NOT EXISTS book_notes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    book_id    INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    content    TEXT    NOT NULL,
+    page_ref   INTEGER,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+`;
+
+const CREATE_HIGHLIGHTS = `
+  CREATE TABLE IF NOT EXISTS highlights (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    book_id    INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    cfi_range  TEXT    NOT NULL,
+    text       TEXT    NOT NULL,
+    color      TEXT    NOT NULL DEFAULT '#fbbf24',
+    note       TEXT,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+`;
+
+const CREATE_BOOKMARKS = `
+  CREATE TABLE IF NOT EXISTS bookmarks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    book_id     INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    cfi         TEXT    NOT NULL,
+    label       TEXT,
+    page_number INTEGER,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+`;
+
 /* ──────────────────────────────────────────────────────
    Indexes — optimized for analytics & common queries
    ────────────────────────────────────────────────────── */
@@ -128,6 +180,19 @@ const CREATE_INDEXES = `
   -- books: series and genre filtering
   CREATE INDEX IF NOT EXISTS idx_books_series             ON books(series)         WHERE series IS NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_books_published_year     ON books(published_year) WHERE published_year IS NOT NULL;
+
+  -- goals
+  CREATE INDEX IF NOT EXISTS idx_goals_type_year          ON goals(type, year);
+
+  -- book_notes
+  CREATE INDEX IF NOT EXISTS idx_book_notes_book          ON book_notes(book_id);
+  CREATE INDEX IF NOT EXISTS idx_book_notes_date          ON book_notes(created_at);
+
+  -- highlights
+  CREATE INDEX IF NOT EXISTS idx_highlights_book          ON highlights(book_id);
+
+  -- bookmarks
+  CREATE INDEX IF NOT EXISTS idx_bookmarks_book           ON bookmarks(book_id);
 `;
 
 /* ──────────────────────────────────────────────────────
@@ -171,6 +236,11 @@ export async function initializeDatabase(db: SQLiteDatabase) {
   await db.execAsync(CREATE_BOOK_TAGS);
   await db.execAsync(CREATE_FOLDERS);
   await db.execAsync(CREATE_FOLDER_BOOKS);
+  await db.execAsync(CREATE_APP_SETTINGS);
+  await db.execAsync(CREATE_GOALS);
+  await db.execAsync(CREATE_BOOK_NOTES);
+  await db.execAsync(CREATE_HIGHLIGHTS);
+  await db.execAsync(CREATE_BOOKMARKS);
 
   await runMigrations(db);
 
