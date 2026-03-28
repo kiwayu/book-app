@@ -5,7 +5,9 @@
       "Bash(grep -r SQLiteRunResult node_modules/expo-sqlite/build/*.d.ts)",
       "Bash(ls /c/Users/hpc09/Desktop/PROJECTS/book-app/bookbrain/node_modules/expo-file-system/build/*.d.ts)",
       "Bash(npx tsc:*)",
-      "Bash(npx ecc-agentshield:*)"
+      "Bash(npx ecc-agentshield:*)",
+      "Read(//c/Users/hpc09/Desktop/PROJECTS/book-app/bookbrain/$HOME/.claude/**)",
+      "Bash(node:*)"
     ]
   }
 }
