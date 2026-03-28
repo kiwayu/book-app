@@ -12,9 +12,9 @@ import {
   Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Platform } from "react-native";
 import * as Sharing from "expo-sharing";
-import { Paths, File as ExpoFile } from "expo-file-system";
-import { readAsStringAsync } from "expo-file-system";
+import { Paths, writeAsStringAsync, readAsStringAsync } from "expo-file-system";
 import * as DocumentPicker from "expo-document-picker";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { t } from "@/theme";
@@ -390,11 +390,21 @@ export default function SettingsTab() {
   const handleExportJSON = useCallback(async () => {
     try {
       const json = await exportLibraryJSON();
-      const file = new ExpoFile(Paths.cache, "bookbrain_export.json");
-      file.write(json);
+      if (Platform.OS === "web") {
+        const blob = new Blob([json], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "bookbrain_export.json";
+        a.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+      const filePath = `${Paths.cache}/bookbrain_export.json`;
+      await writeAsStringAsync(filePath, json);
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
-        await Sharing.shareAsync(file.uri, { mimeType: "application/json", dialogTitle: "Export Library" });
+        await Sharing.shareAsync(filePath, { mimeType: "application/json", dialogTitle: "Export Library" });
       } else {
         Alert.alert("Export Ready", "File saved to cache. Sharing not available on this device.");
       }
@@ -406,11 +416,21 @@ export default function SettingsTab() {
   const handleExportCSV = useCallback(async () => {
     try {
       const csv = await exportLibraryCSV();
-      const file = new ExpoFile(Paths.cache, "bookbrain_export.csv");
-      file.write(csv);
+      if (Platform.OS === "web") {
+        const blob = new Blob([csv], { type: "text/csv" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "bookbrain_export.csv";
+        a.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+      const filePath = `${Paths.cache}/bookbrain_export.csv`;
+      await writeAsStringAsync(filePath, csv);
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
-        await Sharing.shareAsync(file.uri, { mimeType: "text/csv", dialogTitle: "Export Library" });
+        await Sharing.shareAsync(filePath, { mimeType: "text/csv", dialogTitle: "Export Library" });
       } else {
         Alert.alert("Export Ready", "File saved to cache. Sharing not available on this device.");
       }

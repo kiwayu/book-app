@@ -1,13 +1,13 @@
-import { Paths, File as ExpoFile } from "expo-file-system";
-import { readAsStringAsync } from "expo-file-system";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const PATHS_FILE = new ExpoFile(Paths.document, ".epub_paths.json");
+const PATHS_KEY = "epub_paths";
 
 type EpubPathMap = Record<string, string>; // bookId → local/remote URI
 
 async function readMap(): Promise<EpubPathMap> {
   try {
-    const raw = await PATHS_FILE.text();
+    const raw = await AsyncStorage.getItem(PATHS_KEY);
+    if (!raw) return {};
     return JSON.parse(raw) as EpubPathMap;
   } catch {
     return {};
@@ -15,7 +15,7 @@ async function readMap(): Promise<EpubPathMap> {
 }
 
 async function writeMap(map: EpubPathMap): Promise<void> {
-  PATHS_FILE.write(JSON.stringify(map));
+  await AsyncStorage.setItem(PATHS_KEY, JSON.stringify(map));
 }
 
 export async function getEpubPath(bookId: number): Promise<string | null> {

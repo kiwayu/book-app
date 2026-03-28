@@ -1,6 +1,6 @@
-import { Paths, File as ExpoFile } from "expo-file-system";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const PREFS_FILE = new ExpoFile(Paths.document, "library_prefs.json");
+const PREFS_KEY = "library_prefs";
 
 export interface LibraryPrefs {
   sortKey: string;
@@ -28,7 +28,8 @@ const DEFAULTS: LibraryPrefs = {
 
 export async function loadPrefs(): Promise<LibraryPrefs> {
   try {
-    const raw = await PREFS_FILE.text();
+    const raw = await AsyncStorage.getItem(PREFS_KEY);
+    if (!raw) return DEFAULTS;
     return { ...DEFAULTS, ...JSON.parse(raw) };
   } catch {
     return DEFAULTS;
@@ -39,7 +40,7 @@ export async function savePrefs(prefs: Partial<LibraryPrefs>): Promise<void> {
   try {
     const current = await loadPrefs();
     const merged = { ...current, ...prefs };
-    PREFS_FILE.write(JSON.stringify(merged));
+    await AsyncStorage.setItem(PREFS_KEY, JSON.stringify(merged));
   } catch {
     /* non-critical — silently ignore */
   }
