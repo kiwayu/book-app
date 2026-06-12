@@ -43,6 +43,7 @@ import {
   getBookmarksForBook,
   type Bookmark,
 } from "@/services/bookmarks";
+import { writeReaderHtmlFile, readAccessRoot } from "@/services/localEpub";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { t } from "@/theme";
 
@@ -154,6 +155,9 @@ export default function ReaderScreen({
   const htmlRef         = useRef<string | null>(null);
 
   const [htmlReady,     setHtmlReady]     = useState(false);
+  /* file:// URI of the written reader HTML when the book is a local file
+     (iOS WKWebView cannot XHR file:// from an HTML-string origin — Spike #0) */
+  const [sourceUri,     setSourceUri]     = useState<string | null>(null);
   const [settings,      setSettings]      = useState<ReaderSettings>(DEFAULT_SETTINGS);
   const [showControls,  setShowControls]  = useState(false);
   const [showSettings,  setShowSettings]  = useState(false);
@@ -175,19 +179,36 @@ export default function ReaderScreen({
   /* ── HTML built once after loading saved progress ── */
 
   useEffect(() => {
-    getProgress(bookId).then((row) => {
+    let cancelled = false;
+    getProgress(bookId).then(async (row) => {
       const savedCfi  = row?.cfi ?? null;
       const savedPage = row?.current_page ?? 0;
       const savedPct  = row?.percentage ?? 0;
-      if (savedPage) {
+      if (savedPage && !cancelled) {
         startPageRef.current  = savedPage;
         latestPageRef.current = savedPage;
         setCurrentPage(savedPage);
         setPercentage(savedPct);
       }
-      htmlRef.current = buildReaderHtml(epubUrl, savedCfi, DEFAULT_SETTINGS);
-      setHtmlReady(true);
+      const html = buildReaderHtml(epubUrl, savedCfi, DEFAULT_SETTINGS);
+      htmlRef.current = html;
+      /* Local files load via a file:// HTML document (same documentDirectory
+         tree) so epub.js can XHR the book on iOS. Remote URLs keep the
+         original HTML-string path — zero behavior change for them. */
+      let uri: string | null = null;
+      if (epubUrl.startsWith("file://")) {
+        try {
+          uri = await writeReaderHtmlFile(html);
+        } catch {
+          uri = null; // fall back to HTML-string source
+        }
+      }
+      if (!cancelled) {
+        setSourceUri(uri);
+        setHtmlReady(true);
+      }
     });
+    return () => { cancelled = true; };
   }, [bookId, epubUrl]);
 
   /* ── Load highlights & bookmarks ─────────────────── */
@@ -448,13 +469,15 @@ export default function ReaderScreen({
       {htmlReady && htmlRef.current && (
         <WebView
           ref={webViewRef}
-          source={{ html: htmlRef.current }}
+          source={sourceUri ? { uri: sourceUri } : { html: htmlRef.current }}
           originWhitelist={["*"]}
           onMessage={handleMessage}
           javaScriptEnabled
           domStorageEnabled
           allowFileAccess
+          allowFileAccessFromFileURLs
           allowUniversalAccessFromFileURLs
+          allowingReadAccessToURL={readAccessRoot()}
           mixedContentMode="always"
           style={s.webView}
         />
