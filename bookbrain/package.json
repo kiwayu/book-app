@@ -24,6 +24,7 @@
     "expo": "~54.0.33",
     "expo-blur": "~15.0.8",
     "expo-constants": "~18.0.13",
+    "expo-crypto": "~15.0.9",
     "expo-document-picker": "~14.0.8",
     "expo-file-system": "~19.0.21",
     "expo-font": "~14.0.11",
@@ -58,7 +59,9 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/react": "~19.1.0",
+    "better-sqlite3": "^12.10.0",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
     "typescript": "~5.9.2"
