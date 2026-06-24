@@ -30,7 +30,11 @@ import {
   endSession,
   updateProgress,
   getProgress,
+  setRsvpWordIndex,
 } from "@/services/readingTracker";
+import { loadPrefs, savePrefs } from "@/services/preferences";
+import RsvpOverlay from "./rsvp/RsvpOverlay";
+import { tokenizeParagraphs, type Token } from "./rsvp/engine";
 import {
   addHighlight,
   getHighlightsForBook,
@@ -174,7 +178,19 @@ export default function ReaderScreen({
   const [sessionStartTime] = useState(Date.now());
   const [sessionPages,  setSessionPages]  = useState(0);
 
+  /* ── RSVP speed reading ── */
+  const [showRsvp,      setShowRsvp]      = useState(false);
+  const [rsvpTokens,    setRsvpTokens]    = useState<Token[]>([]);
+  const [rsvpChapter,   setRsvpChapter]   = useState("");
+  const [rsvpWpm,       setRsvpWpm]       = useState(300);
+  const rsvpStartIdxRef = useRef(0);
+
   const sheetAnim = useRef(new Animated.Value(0)).current;
+
+  /* load saved WPM preference once */
+  useEffect(() => {
+    loadPrefs().then((p) => setRsvpWpm(p.rsvpWpm ?? 300));
+  }, []);
 
   /* ── HTML built once after loading saved progress ── */
 
@@ -184,6 +200,7 @@ export default function ReaderScreen({
       const savedCfi  = row?.cfi ?? null;
       const savedPage = row?.current_page ?? 0;
       const savedPct  = row?.percentage ?? 0;
+      rsvpStartIdxRef.current = row?.rsvp_word_index ?? 0;
       if (savedPage && !cancelled) {
         startPageRef.current  = savedPage;
         latestPageRef.current = savedPage;
@@ -368,6 +385,31 @@ export default function ReaderScreen({
     inject("window.readerApi.getCurrentCfi()");
   }, [inject]);
 
+  /* ── Speed reading (RSVP) ──────────────────────── */
+
+  const openRsvp = useCallback(() => {
+    clearHideTimer();
+    setShowControls(false);
+    // Pull the current chapter's text; handler opens the overlay on reply.
+    inject("window.readerApi.getChapterText()");
+  }, [inject, clearHideTimer]);
+
+  const closeRsvp = useCallback(
+    (lastIndex: number) => {
+      setShowRsvp(false);
+      setRsvpTokens([]);
+      // Persist resume pointer (clamped to a real word) and remember the speed.
+      setRsvpWordIndex(bookId, rsvpTokens.length > 0 ? lastIndex : null);
+      savePrefs({ rsvpWpm });
+      showAndReset();
+    },
+    [bookId, rsvpTokens.length, rsvpWpm, showAndReset]
+  );
+
+  const handleRsvpWpmChange = useCallback((wpm: number) => {
+    setRsvpWpm(wpm);
+  }, []);
+
   /* ── Session summary on close ──────────────────── */
 
   const handleClose = useCallback(() => {
@@ -427,6 +469,20 @@ export default function ReaderScreen({
             }
             break;
           }
+          case "chapterText": {
+            const paragraphs: string[] = Array.isArray(msg.paragraphs)
+              ? msg.paragraphs
+              : [];
+            const tokens = tokenizeParagraphs(paragraphs);
+            setRsvpTokens(tokens);
+            setRsvpChapter(msg.chapter || chapter || "");
+            // Resume only if the saved index still lands inside this chapter.
+            const saved = rsvpStartIdxRef.current;
+            rsvpStartIdxRef.current =
+              saved > 0 && saved < tokens.length ? saved : 0;
+            setShowRsvp(true);
+            break;
+          }
           case "textSelected": {
             if (msg.text && msg.cfiRange) {
               await addHighlight(bookId, msg.cfiRange, msg.text);
@@ -444,7 +500,7 @@ export default function ReaderScreen({
         /* malformed message */
       }
     },
-    [saveProgressDebounced, showAndReset, bookId, currentPage, inject]
+    [saveProgressDebounced, showAndReset, bookId, currentPage, inject, chapter]
   );
 
   /* ── Derived values ─────────────────────────────── */
@@ -581,6 +637,15 @@ export default function ReaderScreen({
                     <Text style={s.badgeText}>{highlights.length}</Text>
                   </View>
                 )}
+              </Pressable>
+
+              <Pressable
+                onPress={openRsvp}
+                style={s.speedBtn}
+                onPressIn={keepAlive}
+                accessibilityLabel="Speed read this chapter"
+              >
+                <Text style={[s.speedBtnText, { color: accent }]}>⚡</Text>
               </Pressable>
 
               <Pressable onPress={nextPage} style={s.navBtn} onPressIn={keepAlive}>
@@ -881,6 +946,26 @@ export default function ReaderScreen({
           </SafeAreaView>
         </View>
       )}
+
+      {/* ── RSVP speed-reading overlay ─────────────── */}
+      {showRsvp && (
+        <RsvpOverlay
+          tokens={rsvpTokens}
+          initialWpm={rsvpWpm}
+          startIndex={rsvpStartIdxRef.current}
+          chapter={rsvpChapter}
+          colors={{
+            bg:     THEME_BG[theme],
+            fg:     fg,
+            sub:    sub,
+            accent: accent,
+            barBg:  barBg,
+            border: barBorder,
+          }}
+          onWpmChange={handleRsvpWpmChange}
+          onClose={closeRsvp}
+        />
+      )}
     </View>
   );
 }
@@ -1027,7 +1112,17 @@ const s = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: t.space._4,
     paddingVertical: t.space._3,
-    gap: 48,
+    gap: 28,
+  },
+  speedBtn: {
+    padding: t.space._2,
+    minWidth: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  speedBtnText: {
+    fontSize: 20,
+    fontWeight: "700",
   },
   navBtn: {
     padding: t.space._2,
