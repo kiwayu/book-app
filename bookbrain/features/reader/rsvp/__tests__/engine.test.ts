@@ -2,6 +2,7 @@ import {
   tokenize,
   tokenizeParagraphs,
   orpIndex,
+  splitOrp,
   durationFor,
   schedule,
   wordIndexAt,
@@ -97,6 +98,37 @@ describe("orpIndex", () => {
   it("never exceeds the last character", () => {
     expect(orpIndex("")).toBe(0);
     expect(orpIndex("—")).toBe(0);
+  });
+});
+
+describe("splitOrp", () => {
+  it("splits a word around its focal letter", () => {
+    // "reading" is 7 chars -> orpIndex 2
+    expect(splitOrp("reading")).toEqual({
+      left: "re",
+      focus: "a",
+      right: "ding",
+    });
+  });
+
+  it("puts the focus first for one- and two-char words", () => {
+    expect(splitOrp("a")).toEqual({ left: "", focus: "a", right: "" });
+    expect(splitOrp("to")).toEqual({ left: "t", focus: "o", right: "" });
+  });
+
+  it("keeps punctuation in the right segment", () => {
+    expect(splitOrp("end.")).toEqual({ left: "e", focus: "n", right: "d." });
+  });
+
+  it("returns three empty strings for empty input", () => {
+    expect(splitOrp("")).toEqual({ left: "", focus: "", right: "" });
+  });
+
+  it("reassembles to the original word", () => {
+    for (const w of ["a", "to", "reading", "extraordinarily", "war—", "“wait!”"]) {
+      const { left, focus, right } = splitOrp(w);
+      expect(left + focus + right).toBe(w);
+    }
   });
 });
 

@@ -117,6 +117,31 @@ export function orpIndex(word: string): number {
   return Math.min(idx, len - 1);
 }
 
+export interface OrpParts {
+  /** Characters before the focal letter. */
+  left: string;
+  /** The focal (ORP) letter, pinned to a constant x by the overlay. */
+  focus: string;
+  /** Characters after the focal letter. */
+  right: string;
+}
+
+/**
+ * Split a word into the three segments the overlay renders: everything
+ * left of the ORP letter, the ORP letter itself, and everything right.
+ * The overlay pins `focus` to a fixed x so the eye never moves. Empty
+ * input yields three empty strings.
+ */
+export function splitOrp(word: string): OrpParts {
+  if (!word) return { left: "", focus: "", right: "" };
+  const idx = orpIndex(word);
+  return {
+    left: word.slice(0, idx),
+    focus: word.charAt(idx),
+    right: word.slice(idx + 1),
+  };
+}
+
 /* ── Durations ──────────────────────────────────────────────────── */
 
 function visibleLength(word: string): number {
