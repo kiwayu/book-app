@@ -477,7 +477,7 @@ export function BookDetailSheet({
               <View style={ds.highlightHeader}>
                 <View style={[ds.highlightDot, { backgroundColor: hl.color }]} />
               </View>
-              <Text style={ds.highlightText}>"{hl.text}"</Text>
+              <Text style={ds.highlightText}>&ldquo;{hl.text}&rdquo;</Text>
               {hl.note && (
                 <Text style={ds.highlightNote}>{hl.note}</Text>
               )}
