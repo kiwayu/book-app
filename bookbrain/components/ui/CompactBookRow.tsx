@@ -4,6 +4,7 @@ import Swipeable from "react-native-gesture-handler/Swipeable";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { t } from "@/theme";
+import { IconSymbol } from "./icon-symbol";
 import type { BookWithEntry } from "@/store/libraryStore";
 import type { BookCardProgress } from "./BookCard";
 
@@ -127,7 +128,7 @@ export function CompactBookRow(props: CompactBookRowProps) {
         <Image source={{ uri: book.cover_url }} style={c.cover} contentFit="cover" />
       ) : (
         <View style={[c.cover, c.coverEmpty]}>
-          <Text style={c.coverEmoji}>📖</Text>
+          <IconSymbol name="book.closed.fill" size={20} color={t.color.text.faint} />
         </View>
       )}
 

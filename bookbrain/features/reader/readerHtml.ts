@@ -53,9 +53,9 @@ body{background:${initBg};transition:background .2s}
   z-index:100;transition:opacity .3s
 }
 #loading.gone{opacity:0;pointer-events:none}
-#load-icon{font-size:40px;margin-bottom:14px;animation:pulse 1.6s ease-in-out infinite}
+#load-icon{width:34px;height:34px;border-radius:50%;border:3px solid rgba(127,127,127,.22);border-top-color:#3f82bc;margin-bottom:16px;animation:spin .8s linear infinite}
 #load-text{font-family:-apple-system,sans-serif;font-size:14px;opacity:.45}
-@keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
 #err{
   position:fixed;inset:0;background:${initBg};
   display:none;flex-direction:column;
@@ -65,7 +65,7 @@ body{background:${initBg};transition:background .2s}
 #err-msg{font-family:-apple-system,sans-serif;font-size:15px;color:#dc2626;text-align:center;line-height:1.6}
 </style>
 </head><body>
-<div id="loading"><div id="load-icon">📖</div><div id="load-text">Opening book…</div></div>
+<div id="loading"><div id="load-icon"></div><div id="load-text">Opening book…</div></div>
 <div id="err"><div id="err-msg"></div></div>
 <div id="viewer"></div>
 <script>(function(){

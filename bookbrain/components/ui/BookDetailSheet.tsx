@@ -188,19 +188,19 @@ export function BookDetailSheet({
   const actions: ActionDef[] = [];
 
   if (status === "want_to_read" && onStartReading) {
-    actions.push({ icon: "▶", label: "Start Reading", color: t.color.accent.lighter, bg: t.color.accent.bg, onPress: () => onStartReading(b.id) });
+    actions.push({ icon: "play.fill", label: "Start Reading", color: t.color.accent.lighter, bg: t.color.accent.bg, onPress: () => onStartReading(b.id) });
   }
   if (status === "reading" && onMarkFinished) {
-    actions.push({ icon: "✓", label: "Mark Finished", color: t.color.success.lighter, bg: t.color.success.bg, onPress: () => onMarkFinished(b.id) });
+    actions.push({ icon: "checkmark", label: "Mark Finished", color: t.color.success.lighter, bg: t.color.success.bg, onPress: () => onMarkFinished(b.id) });
   }
   if ((status === "dnf" || status === "finished") && onStartReading) {
-    actions.push({ icon: "▶", label: status === "dnf" ? "Resume Reading" : "Reread", color: t.color.accent.lighter, bg: t.color.accent.bg, onPress: () => onStartReading(b.id) });
+    actions.push({ icon: "play.fill", label: status === "dnf" ? "Resume Reading" : "Reread", color: t.color.accent.lighter, bg: t.color.accent.bg, onPress: () => onStartReading(b.id) });
   }
   if (onOpenReader) {
-    actions.push({ icon: "📖", label: "Open in Reader", color: t.color.text.secondary, bg: t.color.glass.bgHover, onPress: () => onOpenReader(b.id) });
+    actions.push({ icon: "book.fill", label: "Open in Reader", color: t.color.text.secondary, bg: t.color.glass.bgHover, onPress: () => onOpenReader(b.id) });
   }
   if (status === "reading" && onMarkDNF) {
-    actions.push({ icon: "✕", label: "Did Not Finish", color: t.color.error.light, bg: t.color.error.bg, onPress: () => onMarkDNF(b.id) });
+    actions.push({ icon: "xmark", label: "Did Not Finish", color: t.color.error.light, bg: t.color.error.bg, onPress: () => onMarkDNF(b.id) });
   }
 
   const handleDelete = onDeleteBook
@@ -317,7 +317,7 @@ export function BookDetailSheet({
               style={[ds.actionBtn, { backgroundColor: a.bg }]}
               onPress={() => { a.onPress(); onClose(); }}
             >
-              <Text style={[ds.actionIcon, { color: a.color }]}>{a.icon}</Text>
+              <IconSymbol name={a.icon as any} size={14} color={a.color} />
               <Text style={[ds.actionLabel, { color: a.color }]}>{a.label}</Text>
             </Pressable>
           ))}

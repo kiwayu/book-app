@@ -4,7 +4,6 @@ import {
   Text,
   Pressable,
   ScrollView,
-  Switch,
   StyleSheet,
   Linking,
   Alert,
@@ -57,17 +56,6 @@ const FONT_OPTIONS = [
   "Times New Roman",
   "Helvetica",
   "Courier",
-];
-
-const ACCENT_COLORS = [
-  { label: "Blue", value: "#5a9dd4" },
-  { label: "Indigo", value: "#818cf8" },
-  { label: "Teal", value: "#14b8a6" },
-  { label: "Green", value: "#0ea369" },
-  { label: "Amber", value: "#d97706" },
-  { label: "Rose", value: "#e11d48" },
-  { label: "Purple", value: "#a855f7" },
-  { label: "Slate", value: "#64748b" },
 ];
 
 /* ── Section wrapper ─────────────────────────────────── */
@@ -127,33 +115,6 @@ function Row({
     );
   }
   return content;
-}
-
-function ToggleRow({
-  label,
-  value,
-  onValueChange,
-  last,
-}: {
-  label: string;
-  value: boolean;
-  onValueChange: (v: boolean) => void;
-  last?: boolean;
-}) {
-  return (
-    <View style={[s.row, last && s.rowLast]}>
-      <Text style={s.rowLabel}>{label}</Text>
-      <Switch
-        value={value}
-        onValueChange={onValueChange}
-        trackColor={{
-          false: t.color.border.default,
-          true: t.color.accent.light,
-        }}
-        thumbColor={value ? t.color.accent.base : "#f4f3f4"}
-      />
-    </View>
-  );
 }
 
 /* ── Picker modal ────────────────────────────────────── */
@@ -286,41 +247,6 @@ function NumberInputModal({
         </Pressable>
       </Pressable>
     </Modal>
-  );
-}
-
-/* ── Color picker row ────────────────────────────────── */
-
-function ColorPickerRow({
-  label,
-  colors,
-  current,
-  onSelect,
-  last,
-}: {
-  label: string;
-  colors: { label: string; value: string }[];
-  current: string;
-  onSelect: (v: string) => void;
-  last?: boolean;
-}) {
-  return (
-    <View style={[s.colorRow, last && s.rowLast]}>
-      <Text style={s.rowLabel}>{label}</Text>
-      <View style={s.colorPalette}>
-        {colors.map((c) => (
-          <Pressable
-            key={c.value}
-            onPress={() => onSelect(c.value)}
-            style={[
-              s.colorDot,
-              { backgroundColor: c.value },
-              current === c.value && s.colorDotSelected,
-            ]}
-          />
-        ))}
-      </View>
-    </View>
   );
 }
 
@@ -565,16 +491,6 @@ export default function SettingsTab() {
                 renderLabel: (v) => STATUS_LABELS[v] ?? v,
               })
             }
-          />
-          <ToggleRow
-            label="Show covers in list view"
-            value={settings.showCoversInList}
-            onValueChange={(v) => update("showCoversInList", v)}
-          />
-          <ToggleRow
-            label="Confirm before deleting"
-            value={settings.confirmBeforeDelete}
-            onValueChange={(v) => update("confirmBeforeDelete", v)}
             last
           />
         </Section>
@@ -711,23 +627,6 @@ export default function SettingsTab() {
                 subtitle: "How many minutes do you want to read each day?",
               })
             }
-            last
-          />
-        </Section>
-
-        {/* ── Appearance ───────────────────────────── */}
-
-        <Section title="Appearance">
-          <ColorPickerRow
-            label="Accent color"
-            colors={ACCENT_COLORS}
-            current={settings.accentColor}
-            onSelect={(v) => update("accentColor", v)}
-          />
-          <ToggleRow
-            label="Compact mode"
-            value={settings.compactMode}
-            onValueChange={(v) => update("compactMode", v)}
             last
           />
         </Section>
@@ -900,32 +799,6 @@ const s = StyleSheet.create({
     color: t.color.text.faint,
     fontSize: 20,
     fontWeight: "300",
-  },
-
-  /* ── Color picker ─── */
-  colorRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: t.space._4,
-    paddingVertical: t.space._3,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: t.color.border.subtle,
-  },
-  colorPalette: {
-    flexDirection: "row",
-    gap: t.space._2,
-  },
-  colorDot: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 2,
-    borderColor: "transparent",
-  },
-  colorDotSelected: {
-    borderColor: t.color.text.primary,
-    borderWidth: 2.5,
   },
 
   /* ── Modal ─── */

@@ -645,7 +645,7 @@ export default function ReaderScreen({
                 onPressIn={keepAlive}
                 accessibilityLabel="Speed read this chapter"
               >
-                <Text style={[s.speedBtnText, { color: accent }]}>⚡</Text>
+                <IconSymbol name="bolt.fill" size={20} color={accent} />
               </Pressable>
 
               <Pressable onPress={nextPage} style={s.navBtn} onPressIn={keepAlive}>

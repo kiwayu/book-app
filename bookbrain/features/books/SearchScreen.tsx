@@ -92,7 +92,7 @@ function BookDetailModal({
               />
             ) : (
               <View style={[m.cover, m.coverPlaceholder]}>
-                <Text style={m.coverPlaceholderText}>📖</Text>
+                <IconSymbol name="book.closed.fill" size={48} color={t.color.text.faint} />
               </View>
             )}
           </View>
@@ -188,7 +188,7 @@ function BookResult({
         <Image source={{ uri: item.cover }} style={s.cover} contentFit="cover" />
       ) : (
         <View style={[s.cover, s.coverPlaceholder]}>
-          <Text style={s.coverPlaceholderText}>📖</Text>
+          <IconSymbol name="book.closed.fill" size={22} color={t.color.text.faint} />
         </View>
       )}
 
@@ -368,7 +368,7 @@ export default function SearchScreen() {
       {/* Error */}
       {error && (
         <View style={s.centerState}>
-          <Text style={s.emptyEmoji}>⚠️</Text>
+          <IconSymbol name="exclamationmark.triangle.fill" size={36} color={t.color.error.base} />
           <Text style={s.errorText}>{error}</Text>
           <Pressable style={s.retryBtn} onPress={() => runSearch(query)}>
             <Text style={s.retryBtnText}>Try again</Text>
@@ -379,7 +379,7 @@ export default function SearchScreen() {
       {/* Empty */}
       {showEmpty && (
         <View style={s.centerState}>
-          <Text style={s.emptyEmoji}>📚</Text>
+          <IconSymbol name="book.closed.fill" size={40} color={t.color.text.faint} />
           <Text style={s.stateText}>No books found</Text>
           <Text style={s.stateSubtext}>Try a different search term</Text>
         </View>
