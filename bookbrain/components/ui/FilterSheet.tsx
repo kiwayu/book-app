@@ -17,6 +17,16 @@ export const EMPTY_FILTERS: LibraryFilters = {
   status: [], genres: [], authors: [], pageRange: null, minRating: null, tagIds: [],
 };
 
+/** Sort controls hosted inside the sheet so the library only needs one
+ *  "Sort & Filter" entry point instead of a separate always-visible strip. */
+export interface SortControl {
+  sortKey: string;
+  sortDir: "asc" | "desc";
+  options: { key: string; label: string }[];
+  onSelectKey: (key: string) => void;
+  onToggleDir: () => void;
+}
+
 export function countActiveFilters(f: LibraryFilters): number {
   let n = 0;
   if (f.status.length) n++;
@@ -66,11 +76,12 @@ interface FilterSheetProps {
   uniqueGenres: string[];
   uniqueAuthors: string[];
   tags: Tag[];
+  sort?: SortControl;
 }
 
 export function FilterSheet({
   visible, filters, onChange, onApply, onClear, onClose,
-  uniqueGenres, uniqueAuthors, tags,
+  uniqueGenres, uniqueAuthors, tags, sort,
 }: FilterSheetProps) {
   const toggle = <T,>(list: T[], item: T) =>
     list.includes(item) ? list.filter((x) => x !== item) : [...list, item];
@@ -84,7 +95,7 @@ export function FilterSheet({
           <View style={fs.handle} />
 
           <View style={fs.header}>
-            <Text style={fs.title}>Filters</Text>
+            <Text style={fs.title}>{sort ? "Sort & Filter" : "Filters"}</Text>
             {activeCount > 0 && (
               <Pressable onPress={onClear} hitSlop={8}>
                 <Text style={fs.clearText}>Clear All</Text>
@@ -93,6 +104,24 @@ export function FilterSheet({
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} style={fs.body}>
+            {sort && (
+              <>
+                <Text style={fs.groupLabel}>Sort By</Text>
+                <View style={fs.chipRow}>
+                  {sort.options.map((o) => (
+                    <Chip key={o.key} label={o.label} active={sort.sortKey === o.key}
+                      onPress={() => sort.onSelectKey(o.key)} />
+                  ))}
+                </View>
+                <View style={[fs.chipRow, { marginTop: t.space._2 }]}>
+                  <Chip label="Ascending" active={sort.sortDir === "asc"}
+                    onPress={() => { if (sort.sortDir !== "asc") sort.onToggleDir(); }} />
+                  <Chip label="Descending" active={sort.sortDir === "desc"}
+                    onPress={() => { if (sort.sortDir !== "desc") sort.onToggleDir(); }} />
+                </View>
+              </>
+            )}
+
             <Text style={fs.groupLabel}>Status</Text>
             <View style={fs.chipRow}>
               {(Object.keys(STATUS_LABELS) as BookStatus[]).map((st) => (

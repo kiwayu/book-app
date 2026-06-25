@@ -17,6 +17,7 @@ import {
   ImportValidationError,
 } from "@/services/localEpub";
 import ReaderScreen from "@/features/reader/ReaderScreen";
+import { IconSymbol } from "@/components/ui/icon-symbol";
 import { t } from "@/theme";
 
 export default function ReaderTab() {
@@ -175,7 +176,7 @@ export default function ReaderTab() {
           </View>
         ) : (
           <View style={s.emptyState}>
-            <Text style={s.emptyIcon}>📚</Text>
+            <IconSymbol name="books.vertical.fill" size={48} color={t.color.text.faint} style={s.emptyIcon} />
             <Text style={s.emptyTitle}>No book selected</Text>
             <Text style={s.emptyBody}>
               Open a book from your library to set up reading here.
