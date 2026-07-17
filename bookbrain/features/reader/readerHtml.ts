@@ -1,3 +1,6 @@
+import jszipSrc from "./vendor/jszipMin";
+import epubjsSrc from "./vendor/epubjsMin";
+
 export type ReaderTheme = "light" | "sepia" | "dark" | "night";
 export type ReaderFont  = "georgia" | "palatino" | "charter" | "system";
 
@@ -38,8 +41,8 @@ export function buildReaderHtml(
 <html><head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/epub.js/0.3.93/epub.min.js"><\/script>
+<script>${jszipSrc}<\/script>
+<script>${epubjsSrc}<\/script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden}
