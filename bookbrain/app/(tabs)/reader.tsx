@@ -11,7 +11,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useLibraryStore } from "@/store/libraryStore";
-import { getEpubPath, setEpubPath, removeEpubPath } from "@/services/epubPaths";
+import { setEpubPath, removeEpubPath } from "@/services/epubPaths";
+import { resolveBookSource } from "@/services/importBook";
 import {
   pickAndStoreLocalEbook,
   ImportValidationError,
@@ -35,7 +36,7 @@ export default function ReaderTab() {
       setUrlInput("");
       return;
     }
-    getEpubPath(currentBook.id).then((path) => {
+    resolveBookSource(currentBook.id).then((path) => {
       if (path) {
         setEpubUrl(path);
         setUrlInput(path);

@@ -38,6 +38,8 @@ import {
 } from "@/components/ui/FilterSheet";
 import { getAll } from "@/db/database";
 import { loadPrefs, savePrefs, type LibraryPrefs } from "@/services/preferences";
+import { importBookFromDevice } from "@/services/importBook";
+import { ImportValidationError } from "@/services/localEpub";
 import {
   getSmartCollectionsWithCounts,
   getSmartCollectionBookIds,
@@ -422,6 +424,30 @@ export default function LibraryScreen() {
   const handleRefresh = useCallback(async () => { setRefreshing(true); await loadLibrary(); setRefreshing(false); }, [loadLibrary]);
   const goToSearch = useCallback(() => router.push("/search"), [router]);
 
+  const importFromDevice = useCallback(async () => {
+    try {
+      const res = await importBookFromDevice();
+      if (!res) return; // cancelled
+      await loadLibrary();
+      if (res.duplicate) {
+        Alert.alert("Already in library", `"${res.title}" is already in your library.`);
+      }
+    } catch (e) {
+      Alert.alert(
+        "Import failed",
+        e instanceof ImportValidationError ? e.message : "Could not import that file."
+      );
+    }
+  }, [loadLibrary]);
+
+  const handleAdd = useCallback(() => {
+    Alert.alert("Add a book", undefined, [
+      { text: "Search Online", onPress: goToSearch },
+      { text: "Import from Device", onPress: importFromDevice },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }, [goToSearch, importFromDevice]);
+
   const handleOpenReader = useCallback(async (book: BookWithEntry) => {
     await openBook(book.id); setCurrentBook(book); router.push("/reader");
   }, [openBook, setCurrentBook, router]);
@@ -499,7 +525,7 @@ export default function LibraryScreen() {
             <Text style={s.headerTitle}>My Library</Text>
             <Text style={s.headerSub}>{books.length} {books.length === 1 ? "book" : "books"}</Text>
           </View>
-          <Pressable style={({ pressed }) => [s.addBtn, pressed && s.addBtnPressed]} onPress={goToSearch}>
+          <Pressable style={({ pressed }) => [s.addBtn, pressed && s.addBtnPressed]} onPress={handleAdd}>
             <IconSymbol name="plus" size={13} color="#fff" />
             <Text style={s.addBtnText}>Add</Text>
           </Pressable>
