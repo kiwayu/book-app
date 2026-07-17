@@ -112,7 +112,12 @@ function StatCard({
   return (
     <View style={s.statCard}>
       {icon ? (
-        <Text style={s.statIcon}>{icon}</Text>
+        <IconSymbol
+          name={icon as any}
+          size={22}
+          color={t.color.accent.base}
+          style={s.statIcon}
+        />
       ) : null}
       <Text style={s.statValue}>{value}</Text>
       <Text style={s.statTitle}>{title}</Text>
@@ -784,22 +789,22 @@ export default function AnalyticsScreen() {
           <StatCard
             title="Books Finished"
             value={data.stats.total_books.toLocaleString()}
-            icon="📚"
+            icon="books.vertical.fill"
           />
           <StatCard
             title="Pages Read"
             value={data.stats.total_pages.toLocaleString()}
-            icon="📖"
+            icon="book.fill"
           />
           <StatCard
             title="Hours Read"
             value={data.stats.total_hours.toLocaleString()}
-            icon="⏱"
+            icon="clock.fill"
           />
           <StatCard
             title="Avg Rating"
             value={data.stats.avg_rating > 0 ? `${data.stats.avg_rating} ★` : "—"}
-            icon="⭐"
+            icon="star.fill"
           />
         </View>
 

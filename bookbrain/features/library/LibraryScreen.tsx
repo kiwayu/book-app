@@ -10,7 +10,6 @@ import {
   TextInput,
   Alert,
   StyleSheet,
-  Animated,
   type LayoutChangeEvent,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -114,45 +113,6 @@ function prefsToFilters(p: LibraryPrefs): LibraryFilters {
   };
 }
 
-/* ── Inline Sort Strip ────────────────────────────── */
-
-function SortStrip({ sortKey, sortDir, onSelect, onToggleDir }: {
-  sortKey: SortKey; sortDir: SortDir;
-  onSelect: (key: SortKey) => void; onToggleDir: () => void;
-}) {
-  const arrowTranslate = useRef(new Animated.Value(0)).current;
-
-  const handlePress = (key: SortKey) => {
-    const dirWillChange = key === sortKey;
-    if (dirWillChange) {
-      arrowTranslate.setValue(-6);
-      Animated.spring(arrowTranslate, { toValue: 0, friction: 5, tension: 120, useNativeDriver: true }).start();
-      onToggleDir();
-    } else {
-      onSelect(key);
-    }
-  };
-
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={srt.strip}>
-      {SORT_OPTIONS.map((opt) => {
-        const active = opt.key === sortKey;
-        return (
-          <Pressable key={opt.key}
-            style={({ pressed }) => [srt.pill, active && srt.pillActive, pressed && srt.pillPressed]}
-            onPress={() => handlePress(opt.key)}>
-            {active && (
-              <Animated.Text style={[srt.dirArrow, { transform: [{ translateY: arrowTranslate }] }]}>
-                {sortDir === "asc" ? "↑" : "↓"}
-              </Animated.Text>
-            )}
-            <Text style={[srt.pillLabel, active && srt.pillLabelActive]}>{opt.shortLabel}</Text>
-          </Pressable>
-        );
-      })}
-    </ScrollView>
-  );
-}
 
 /* ── Collapsible Section ──────────────────────────── */
 
@@ -161,7 +121,7 @@ function CollapsibleSection({
   defaultExpanded = true, previewCount = -1,
   accentColor, rightAction,
 }: {
-  title: string; emoji: string; count: number; children: React.ReactNode;
+  title: string; emoji?: string; count: number; children: React.ReactNode;
   defaultExpanded?: boolean; previewCount?: number;
   accentColor?: string; rightAction?: React.ReactNode;
 }) {
@@ -572,10 +532,6 @@ export default function LibraryScreen() {
           scrollRef.current?.scrollTo({ y: 0, animated: false });
         }} />
 
-        {/* ── Sort Strip ─────────────────────────────── */}
-        <SortStrip sortKey={sortKey} sortDir={sortDir}
-          onSelect={setSortKey} onToggleDir={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))} />
-
         {/* ── Active controls bar ────────────────────── */}
         {isControlsActive && (
           <View style={ctrl.activeBar}>
@@ -649,7 +605,7 @@ export default function LibraryScreen() {
           <View style={s.flatSection}>
             {filteredSorted.length > 0 ? renderCompactRows(filteredSorted) : (
               <View style={s.noResults}>
-                <Text style={s.noResultsEmoji}>📭</Text>
+                <IconSymbol name="tray" size={40} color={t.color.text.faint} style={{ marginBottom: t.space._2 }} />
                 <Text style={s.noResultsText}>No books match your criteria</Text>
               </View>
             )}
@@ -672,7 +628,7 @@ export default function LibraryScreen() {
             {folders.map((folder) => {
               const fBooks = getFolderBooks(folder);
               return (
-                <CollapsibleSection key={`f-${folder.id}`} title={folder.name} emoji="📁" count={fBooks.length}
+                <CollapsibleSection key={`f-${folder.id}`} title={folder.name} count={fBooks.length}
                   accentColor={folder.color} defaultExpanded={false}
                   rightAction={<Pressable style={s.deleteBtn} onPress={() => handleDeleteFolder(folder)} hitSlop={8}><Text style={s.deleteText}>✕</Text></Pressable>}>
                   {fBooks.length > 0 ? renderCompactRows(fBooks) : <EmptySection onAdd={goToSearch} />}
@@ -687,7 +643,7 @@ export default function LibraryScreen() {
           <View style={s.flatSection}>
             {filteredSorted.length > 0 ? renderCompactRows(filteredSorted) : (
               <View style={s.noResults}>
-                <Text style={s.noResultsEmoji}>📭</Text>
+                <IconSymbol name="tray" size={40} color={t.color.text.faint} style={{ marginBottom: t.space._2 }} />
                 <Text style={s.noResultsText}>No books in this collection</Text>
               </View>
             )}
@@ -720,7 +676,14 @@ export default function LibraryScreen() {
       <FilterSheet visible={showFilterModal} filters={filters} onChange={setFilters}
         onApply={() => setShowFilterModal(false)} onClear={() => setFilters(EMPTY_FILTERS)}
         onClose={() => setShowFilterModal(false)}
-        uniqueGenres={uniqueGenres} uniqueAuthors={uniqueAuthors} tags={tags} />
+        uniqueGenres={uniqueGenres} uniqueAuthors={uniqueAuthors} tags={tags}
+        sort={{
+          sortKey,
+          sortDir,
+          options: SORT_OPTIONS.map((o) => ({ key: o.key, label: o.label })),
+          onSelectKey: (k) => setSortKey(k as SortKey),
+          onToggleDir: () => setSortDir((d) => (d === "asc" ? "desc" : "asc")),
+        }} />
       <NewFolderModal visible={showNewFolder} onClose={() => setShowNewFolder(false)}
         onCreate={(n, c) => createFolder(n, c)} />
       <BookDetailSheet book={detailBook} progress={detailBook ? progressMap.get(detailBook.id) : undefined}
@@ -897,20 +860,6 @@ const ctrl = StyleSheet.create({
   resultCount: { ...t.font.caption, color: t.color.text.muted },
   resetBtn: { paddingHorizontal: t.space._3, paddingVertical: t.space._1 },
   resetText: { color: t.color.accent.base, fontSize: 12, fontWeight: "600" },
-});
-
-const srt = StyleSheet.create({
-  strip: { paddingHorizontal: t.space._4, paddingVertical: t.space._2, gap: t.space._2 - 2 },
-  pill: {
-    flexDirection: "row", alignItems: "center",
-    paddingHorizontal: t.space._3, paddingVertical: 5, borderRadius: t.radius.md,
-    backgroundColor: t.color.glass.bg, borderWidth: 1, borderColor: t.color.glass.border,
-  },
-  pillActive: { backgroundColor: t.color.accent.bg, borderColor: t.color.accent.border },
-  pillLabel: { color: t.color.text.muted, fontSize: 12, fontWeight: "600" },
-  pillLabelActive: { color: t.color.accent.strong },
-  pillPressed: { opacity: 0.7 },
-  dirArrow: { color: t.color.accent.lighter, fontSize: 11, fontWeight: "800", marginRight: 3 },
 });
 
 const modal = StyleSheet.create({

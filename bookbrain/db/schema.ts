@@ -144,6 +144,31 @@ const CREATE_BOOKMARKS = `
 `;
 
 /* ──────────────────────────────────────────────────────
+   Book files (import pipeline, eng review T3)
+
+     books 1 ──── 1 book_files      the imported file on disk
+                                    (or a remote URL / missing-file
+                                     record from the legacy migration)
+
+   content_hash is a partial hash: SHA-256(size | first 1MB | last 1MB),
+   UNIQUE for dedupe-by-content. NULL for remote URLs and missing files
+   (SQLite UNIQUE permits multiple NULLs — migration idempotency relies
+   on per-entry key removal, not on this constraint).
+   ────────────────────────────────────────────────────── */
+
+const CREATE_BOOK_FILES = `
+  CREATE TABLE IF NOT EXISTS book_files (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    book_id      INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    file_path    TEXT    NOT NULL,
+    file_type    TEXT    NOT NULL CHECK (file_type IN ('epub', 'pdf')),
+    file_size    INTEGER,
+    content_hash TEXT    UNIQUE,
+    imported_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+`;
+
+/* ──────────────────────────────────────────────────────
    Indexes — optimized for analytics & common queries
    ────────────────────────────────────────────────────── */
 
@@ -193,6 +218,9 @@ const CREATE_INDEXES = `
 
   -- bookmarks
   CREATE INDEX IF NOT EXISTS idx_bookmarks_book           ON bookmarks(book_id);
+
+  -- book_files: reader resolves a book's file by book_id
+  CREATE INDEX IF NOT EXISTS idx_book_files_book          ON book_files(book_id);
 `;
 
 /* ──────────────────────────────────────────────────────
@@ -208,6 +236,8 @@ const MIGRATIONS: string[] = [
   "ALTER TABLE books ADD COLUMN genres TEXT",
   "ALTER TABLE library_entries ADD COLUMN date_added TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE library_entries ADD COLUMN reread_count INTEGER NOT NULL DEFAULT 0",
+  // RSVP resume pointer; NULLed by every normal-reading progress write (D16)
+  "ALTER TABLE reading_progress ADD COLUMN rsvp_word_index INTEGER",
 ];
 
 async function runMigrations(db: SQLiteDatabase) {
@@ -241,6 +271,7 @@ export async function initializeDatabase(db: SQLiteDatabase) {
   await db.execAsync(CREATE_BOOK_NOTES);
   await db.execAsync(CREATE_HIGHLIGHTS);
   await db.execAsync(CREATE_BOOKMARKS);
+  await db.execAsync(CREATE_BOOK_FILES);
 
   await runMigrations(db);
 

@@ -12,7 +12,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useLibraryStore } from "@/store/libraryStore";
 import { getEpubPath, setEpubPath, removeEpubPath } from "@/services/epubPaths";
+import {
+  pickAndStoreLocalEbook,
+  ImportValidationError,
+} from "@/services/localEpub";
 import ReaderScreen from "@/features/reader/ReaderScreen";
+import { IconSymbol } from "@/components/ui/icon-symbol";
 import { t } from "@/theme";
 
 export default function ReaderTab() {
@@ -49,6 +54,30 @@ export default function ReaderTab() {
     await setEpubPath(currentBook.id, url);
     setEpubUrl(url);
   }, [urlInput, currentBook]);
+
+  /* Spike #0: pick a local .epub, copy into documentDirectory/books/,
+     open via file:// (reader loads it as a file-origin document on iOS). */
+  const handlePickFile = useCallback(async () => {
+    if (!currentBook) return;
+    setUrlError(null);
+    try {
+      const picked = await pickAndStoreLocalEbook();
+      if (!picked) return; // user cancelled
+      if (picked.kind !== "epub") {
+        setUrlError("PDF support lands later — pick an .epub for now.");
+        return;
+      }
+      await setEpubPath(currentBook.id, picked.uri);
+      setUrlInput(picked.uri);
+      setEpubUrl(picked.uri);
+    } catch (e) {
+      setUrlError(
+        e instanceof ImportValidationError
+          ? e.message
+          : "Could not import that file. Try again or use a URL."
+      );
+    }
+  }, [currentBook]);
 
   const handleClose = useCallback(() => {
     setEpubUrl(null);
@@ -124,9 +153,16 @@ export default function ReaderTab() {
             {/* Actions */}
             <Pressable
               style={({ pressed }) => [s.openBtn, pressed && s.openBtnPressed]}
+              onPress={handlePickFile}
+            >
+              <Text style={s.openBtnText}>Pick Local EPUB…</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [s.openBtn, s.openBtnSecondary, pressed && s.openBtnPressed]}
               onPress={handleOpen}
             >
-              <Text style={s.openBtnText}>Open Book</Text>
+              <Text style={s.openBtnText}>Open From URL</Text>
             </Pressable>
 
             {urlInput.trim().length > 0 && (
@@ -140,7 +176,7 @@ export default function ReaderTab() {
           </View>
         ) : (
           <View style={s.emptyState}>
-            <Text style={s.emptyIcon}>📚</Text>
+            <IconSymbol name="books.vertical.fill" size={48} color={t.color.text.faint} style={s.emptyIcon} />
             <Text style={s.emptyTitle}>No book selected</Text>
             <Text style={s.emptyBody}>
               Open a book from your library to set up reading here.
@@ -244,6 +280,9 @@ const s = StyleSheet.create({
   openBtnPressed: {
     opacity: 0.82,
     transform: [{ scale: 0.985 }],
+  },
+  openBtnSecondary: {
+    backgroundColor: t.color.accent.strong,
   },
   openBtnText: {
     color: "#fff",

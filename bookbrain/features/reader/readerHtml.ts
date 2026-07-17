@@ -53,9 +53,9 @@ body{background:${initBg};transition:background .2s}
   z-index:100;transition:opacity .3s
 }
 #loading.gone{opacity:0;pointer-events:none}
-#load-icon{font-size:40px;margin-bottom:14px;animation:pulse 1.6s ease-in-out infinite}
+#load-icon{width:34px;height:34px;border-radius:50%;border:3px solid rgba(127,127,127,.22);border-top-color:#3f82bc;margin-bottom:16px;animation:spin .8s linear infinite}
 #load-text{font-family:-apple-system,sans-serif;font-size:14px;opacity:.45}
-@keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
 #err{
   position:fixed;inset:0;background:${initBg};
   display:none;flex-direction:column;
@@ -65,7 +65,7 @@ body{background:${initBg};transition:background .2s}
 #err-msg{font-family:-apple-system,sans-serif;font-size:15px;color:#dc2626;text-align:center;line-height:1.6}
 </style>
 </head><body>
-<div id="loading"><div id="load-icon">📖</div><div id="load-text">Opening book…</div></div>
+<div id="loading"><div id="load-icon"></div><div id="load-text">Opening book…</div></div>
 <div id="err"><div id="err-msg"></div></div>
 <div id="viewer"></div>
 <script>(function(){
@@ -222,13 +222,67 @@ try{
 
 }catch(err){showError("Failed to load book: "+(err&&err.message||"unknown error"));}
 
+/* ── chapter text extraction (RSVP speed reading) ──── */
+/* Paginated flow keeps the whole section in one iframe document, so the
+   block-level text we read here is the entire current chapter — exactly
+   what the RSVP engine tokenizes. */
+function currentDocs(){
+  var docs=[];
+  try{
+    if(rendition&&typeof rendition.getContents==="function"){
+      var cs=rendition.getContents()||[];
+      if(cs&&cs.document)cs=[cs];           // some versions return one Contents
+      for(var i=0;i<cs.length;i++)if(cs[i]&&cs[i].document)docs.push(cs[i].document);
+    }
+  }catch(e){}
+  if(!docs.length){
+    var views=(rendition&&rendition.manager&&rendition.manager.views&&(rendition.manager.views._views||rendition.manager.views.views))||[];
+    for(var j=0;j<views.length;j++){
+      var v=views[j],d=v.document||(v.iframe&&v.iframe.contentDocument);
+      if(d)docs.push(d);
+    }
+  }
+  return docs;
+}
+function collectParagraphs(doc){
+  var out=[];
+  if(!doc||!doc.body)return out;
+  var blocks=doc.body.querySelectorAll("p,li,blockquote,h1,h2,h3,h4,h5,h6");
+  if(blocks&&blocks.length){
+    for(var i=0;i<blocks.length;i++){
+      var txt=(blocks[i].textContent||"").replace(/\\s+/g," ").trim();
+      if(txt)out.push(txt);
+    }
+  }else{
+    var body=(doc.body.textContent||"").replace(/\\r/g,"");
+    var parts=body.split(/\\n\\s*\\n/);
+    for(var k=0;k<parts.length;k++){
+      var p=parts[k].replace(/\\s+/g," ").trim();
+      if(p)out.push(p);
+    }
+  }
+  return out;
+}
+function getChapterText(){
+  try{
+    var paras=[],docs=currentDocs();
+    for(var i=0;i<docs.length;i++){
+      var got=collectParagraphs(docs[i]);
+      for(var k=0;k<got.length;k++)paras.push(got[k]);
+    }
+    var href=(rendition&&rendition.location&&rendition.location.start&&rendition.location.start.href)||"";
+    post("chapterText",{paragraphs:paras,chapter:chapterOf(href)});
+  }catch(e){post("chapterText",{paragraphs:[],chapter:""});}
+}
+
 /* ── public API ───────────────────────────────────── */
 window.readerApi={
-  nextPage:      function(){if(rendition)rendition.next();},
-  prevPage:      function(){if(rendition)rendition.prev();},
-  goToChapter:   function(href){if(rendition)rendition.display(href);},
-  goToCfi:       function(cfi){if(rendition)rendition.display(cfi);},
-  applySettings: applySettings,
+  nextPage:       function(){if(rendition)rendition.next();},
+  prevPage:       function(){if(rendition)rendition.prev();},
+  goToChapter:    function(href){if(rendition)rendition.display(href);},
+  goToCfi:        function(cfi){if(rendition)rendition.display(cfi);},
+  applySettings:  applySettings,
+  getChapterText: getChapterText,
 };
 })();<\/script>
 </body></html>`;

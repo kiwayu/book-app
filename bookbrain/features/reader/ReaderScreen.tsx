@@ -30,7 +30,11 @@ import {
   endSession,
   updateProgress,
   getProgress,
+  setRsvpWordIndex,
 } from "@/services/readingTracker";
+import { loadPrefs, savePrefs } from "@/services/preferences";
+import RsvpOverlay from "./rsvp/RsvpOverlay";
+import { tokenizeParagraphs, type Token } from "./rsvp/engine";
 import {
   addHighlight,
   getHighlightsForBook,
@@ -43,6 +47,7 @@ import {
   getBookmarksForBook,
   type Bookmark,
 } from "@/services/bookmarks";
+import { writeReaderHtmlFile, readAccessRoot } from "@/services/localEpub";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { t } from "@/theme";
 
@@ -154,6 +159,9 @@ export default function ReaderScreen({
   const htmlRef         = useRef<string | null>(null);
 
   const [htmlReady,     setHtmlReady]     = useState(false);
+  /* file:// URI of the written reader HTML when the book is a local file
+     (iOS WKWebView cannot XHR file:// from an HTML-string origin — Spike #0) */
+  const [sourceUri,     setSourceUri]     = useState<string | null>(null);
   const [settings,      setSettings]      = useState<ReaderSettings>(DEFAULT_SETTINGS);
   const [showControls,  setShowControls]  = useState(false);
   const [showSettings,  setShowSettings]  = useState(false);
@@ -170,24 +178,54 @@ export default function ReaderScreen({
   const [sessionStartTime] = useState(Date.now());
   const [sessionPages,  setSessionPages]  = useState(0);
 
+  /* ── RSVP speed reading ── */
+  const [showRsvp,      setShowRsvp]      = useState(false);
+  const [rsvpTokens,    setRsvpTokens]    = useState<Token[]>([]);
+  const [rsvpChapter,   setRsvpChapter]   = useState("");
+  const [rsvpWpm,       setRsvpWpm]       = useState(300);
+  const rsvpStartIdxRef = useRef(0);
+
   const sheetAnim = useRef(new Animated.Value(0)).current;
+
+  /* load saved WPM preference once */
+  useEffect(() => {
+    loadPrefs().then((p) => setRsvpWpm(p.rsvpWpm ?? 300));
+  }, []);
 
   /* ── HTML built once after loading saved progress ── */
 
   useEffect(() => {
-    getProgress(bookId).then((row) => {
+    let cancelled = false;
+    getProgress(bookId).then(async (row) => {
       const savedCfi  = row?.cfi ?? null;
       const savedPage = row?.current_page ?? 0;
       const savedPct  = row?.percentage ?? 0;
-      if (savedPage) {
+      rsvpStartIdxRef.current = row?.rsvp_word_index ?? 0;
+      if (savedPage && !cancelled) {
         startPageRef.current  = savedPage;
         latestPageRef.current = savedPage;
         setCurrentPage(savedPage);
         setPercentage(savedPct);
       }
-      htmlRef.current = buildReaderHtml(epubUrl, savedCfi, DEFAULT_SETTINGS);
-      setHtmlReady(true);
+      const html = buildReaderHtml(epubUrl, savedCfi, DEFAULT_SETTINGS);
+      htmlRef.current = html;
+      /* Local files load via a file:// HTML document (same documentDirectory
+         tree) so epub.js can XHR the book on iOS. Remote URLs keep the
+         original HTML-string path — zero behavior change for them. */
+      let uri: string | null = null;
+      if (epubUrl.startsWith("file://")) {
+        try {
+          uri = await writeReaderHtmlFile(html);
+        } catch {
+          uri = null; // fall back to HTML-string source
+        }
+      }
+      if (!cancelled) {
+        setSourceUri(uri);
+        setHtmlReady(true);
+      }
     });
+    return () => { cancelled = true; };
   }, [bookId, epubUrl]);
 
   /* ── Load highlights & bookmarks ─────────────────── */
@@ -347,6 +385,27 @@ export default function ReaderScreen({
     inject("window.readerApi.getCurrentCfi()");
   }, [inject]);
 
+  /* ── Speed reading (RSVP) ──────────────────────── */
+
+  const openRsvp = useCallback(() => {
+    clearHideTimer();
+    setShowControls(false);
+    // Pull the current chapter's text; handler opens the overlay on reply.
+    inject("window.readerApi.getChapterText()");
+  }, [inject, clearHideTimer]);
+
+  const closeRsvp = useCallback(
+    (lastIndex: number) => {
+      setShowRsvp(false);
+      setRsvpTokens([]);
+      // Persist resume pointer (clamped to a real word) and remember the speed.
+      setRsvpWordIndex(bookId, rsvpTokens.length > 0 ? lastIndex : null);
+      savePrefs({ rsvpWpm });
+      showAndReset();
+    },
+    [bookId, rsvpTokens.length, rsvpWpm, showAndReset]
+  );
+
   /* ── Session summary on close ──────────────────── */
 
   const handleClose = useCallback(() => {
@@ -406,6 +465,20 @@ export default function ReaderScreen({
             }
             break;
           }
+          case "chapterText": {
+            const paragraphs: string[] = Array.isArray(msg.paragraphs)
+              ? msg.paragraphs
+              : [];
+            const tokens = tokenizeParagraphs(paragraphs);
+            setRsvpTokens(tokens);
+            setRsvpChapter(msg.chapter || chapter || "");
+            // Resume only if the saved index still lands inside this chapter.
+            const saved = rsvpStartIdxRef.current;
+            rsvpStartIdxRef.current =
+              saved > 0 && saved < tokens.length ? saved : 0;
+            setShowRsvp(true);
+            break;
+          }
           case "textSelected": {
             if (msg.text && msg.cfiRange) {
               await addHighlight(bookId, msg.cfiRange, msg.text);
@@ -423,7 +496,7 @@ export default function ReaderScreen({
         /* malformed message */
       }
     },
-    [saveProgressDebounced, showAndReset, bookId, currentPage, inject]
+    [saveProgressDebounced, showAndReset, bookId, currentPage, inject, chapter]
   );
 
   /* ── Derived values ─────────────────────────────── */
@@ -448,13 +521,15 @@ export default function ReaderScreen({
       {htmlReady && htmlRef.current && (
         <WebView
           ref={webViewRef}
-          source={{ html: htmlRef.current }}
+          source={sourceUri ? { uri: sourceUri } : { html: htmlRef.current }}
           originWhitelist={["*"]}
           onMessage={handleMessage}
           javaScriptEnabled
           domStorageEnabled
           allowFileAccess
+          allowFileAccessFromFileURLs
           allowUniversalAccessFromFileURLs
+          allowingReadAccessToURL={readAccessRoot()}
           mixedContentMode="always"
           style={s.webView}
         />
@@ -558,6 +633,15 @@ export default function ReaderScreen({
                     <Text style={s.badgeText}>{highlights.length}</Text>
                   </View>
                 )}
+              </Pressable>
+
+              <Pressable
+                onPress={openRsvp}
+                style={s.speedBtn}
+                onPressIn={keepAlive}
+                accessibilityLabel="Speed read this chapter"
+              >
+                <IconSymbol name="bolt.fill" size={20} color={accent} />
               </Pressable>
 
               <Pressable onPress={nextPage} style={s.navBtn} onPressIn={keepAlive}>
@@ -858,6 +942,26 @@ export default function ReaderScreen({
           </SafeAreaView>
         </View>
       )}
+
+      {/* ── RSVP speed-reading overlay ─────────────── */}
+      {showRsvp && (
+        <RsvpOverlay
+          tokens={rsvpTokens}
+          initialWpm={rsvpWpm}
+          startIndex={rsvpStartIdxRef.current}
+          chapter={rsvpChapter}
+          colors={{
+            bg:     THEME_BG[theme],
+            fg:     fg,
+            sub:    sub,
+            accent: accent,
+            barBg:  barBg,
+            border: barBorder,
+          }}
+          onWpmChange={setRsvpWpm}
+          onClose={closeRsvp}
+        />
+      )}
     </View>
   );
 }
@@ -1004,7 +1108,13 @@ const s = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: t.space._4,
     paddingVertical: t.space._3,
-    gap: 48,
+    gap: 28,
+  },
+  speedBtn: {
+    padding: t.space._2,
+    minWidth: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
   navBtn: {
     padding: t.space._2,
