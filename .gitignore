@@ -1,3 +1,6 @@
 # Claude Code local/personal config — never publish to a public repo
 .claude/
 bookbrain/coverage/
+bookbrain/playwright-report/
+bookbrain/test-results/
+.playwright-mcp/
