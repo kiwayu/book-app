@@ -144,15 +144,11 @@ const CREATE_BOOKMARKS = `
 `;
 
 /* ──────────────────────────────────────────────────────
-   Book files & locations (import pipeline, eng review T3)
+   Book files (import pipeline, eng review T3)
 
      books 1 ──── 1 book_files      the imported file on disk
-       │                            (or a remote URL / missing-file
-       │                             record from the legacy migration)
-       └─── 1 book_locations        epub.js locations.save() JSON —
-                                    deliberately NOT a column on books:
-                                    the library's SELECT b.* must stay
-                                    lean (eng review D17)
+                                    (or a remote URL / missing-file
+                                     record from the legacy migration)
 
    content_hash is a partial hash: SHA-256(size | first 1MB | last 1MB),
    UNIQUE for dedupe-by-content. NULL for remote URLs and missing files
@@ -169,14 +165,6 @@ const CREATE_BOOK_FILES = `
     file_size    INTEGER,
     content_hash TEXT    UNIQUE,
     imported_at  TEXT    NOT NULL DEFAULT (datetime('now'))
-  );
-`;
-
-const CREATE_BOOK_LOCATIONS = `
-  CREATE TABLE IF NOT EXISTS book_locations (
-    book_id      INTEGER PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
-    locations    TEXT    NOT NULL,
-    generated_at TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 `;
 
@@ -284,7 +272,6 @@ export async function initializeDatabase(db: SQLiteDatabase) {
   await db.execAsync(CREATE_HIGHLIGHTS);
   await db.execAsync(CREATE_BOOKMARKS);
   await db.execAsync(CREATE_BOOK_FILES);
-  await db.execAsync(CREATE_BOOK_LOCATIONS);
 
   await runMigrations(db);
 

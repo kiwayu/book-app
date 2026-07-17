@@ -7,7 +7,6 @@ import {
   schedule,
   wordIndexAt,
   isFinished,
-  rebase,
   totalDuration,
   PACING,
   type Token,
@@ -231,7 +230,7 @@ describe("schedule / wordIndexAt", () => {
   });
 });
 
-describe("rebase (mid-stream WPM change, D19)", () => {
+describe("mid-stream WPM change (reschedule from current word, D19)", () => {
   it("restarts the current word at t=0 under the new speed — no skips", () => {
     const tokens = tokenizeParagraphs(["alpha beta gamma delta epsilon"]);
     const before = schedule(tokens, 300);
@@ -240,8 +239,8 @@ describe("rebase (mid-stream WPM change, D19)", () => {
     const visibleBefore = wordIndexAt(before, 450);
     expect(visibleBefore).toBe(2);
 
-    // User drags the slider to 600 WPM. Overlay rebases and resets clock.
-    const after = rebase(tokens, visibleBefore, 600);
+    // User drags the slider to 600 WPM. Overlay reschedules and resets clock.
+    const after = schedule(tokens, 600, visibleBefore);
     expect(after.offset).toBe(2);
     expect(wordIndexAt(after, 0)).toBe(2); // same word, not skipped
 
@@ -249,19 +248,14 @@ describe("rebase (mid-stream WPM change, D19)", () => {
     expect(wordIndexAt(after, 100)).toBe(3);
   });
 
-  it("is equivalent to schedule(tokens, wpm, fromIndex)", () => {
-    const tokens = tokenizeParagraphs(["a b c d"]);
-    expect(rebase(tokens, 1, 450)).toEqual(schedule(tokens, 450, 1));
-  });
-
-  it("rebase at the final word leaves a finishable schedule", () => {
+  it("rescheduling at the final word leaves a finishable schedule", () => {
     const tokens = tokenizeParagraphs(["only one"]);
-    const last = rebase(tokens, 1, 300);
+    const last = schedule(tokens, 300, 1);
     expect(wordIndexAt(last, 0)).toBe(1);
     expect(isFinished(last, totalDuration(last))).toBe(true);
   });
 
-  it("simulated rAF loop never moves backwards across a rebase", () => {
+  it("simulated rAF loop never moves backwards across a WPM change", () => {
     const tokens = tokenizeParagraphs(["w1 w2 w3 w4 w5 w6 w7 w8"]);
     let sched = schedule(tokens, 240); // 250ms per plain word
     let clockStart = 0;
@@ -272,8 +266,8 @@ describe("rebase (mid-stream WPM change, D19)", () => {
       expect(visible).toBeGreaterThanOrEqual(lastVisible);
       lastVisible = visible;
       if (now === 496) {
-        // slider change mid-frame: rebase + clock reset, same word stays
-        sched = rebase(tokens, visible, 480);
+        // slider change mid-frame: reschedule + clock reset, same word stays
+        sched = schedule(tokens, 480, visible);
         clockStart = now;
         expect(wordIndexAt(sched, now - clockStart)).toBe(visible);
       }

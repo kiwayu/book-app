@@ -406,10 +406,6 @@ export default function ReaderScreen({
     [bookId, rsvpTokens.length, rsvpWpm, showAndReset]
   );
 
-  const handleRsvpWpmChange = useCallback((wpm: number) => {
-    setRsvpWpm(wpm);
-  }, []);
-
   /* ── Session summary on close ──────────────────── */
 
   const handleClose = useCallback(() => {
@@ -962,7 +958,7 @@ export default function ReaderScreen({
             barBg:  barBg,
             border: barBorder,
           }}
-          onWpmChange={handleRsvpWpmChange}
+          onWpmChange={setRsvpWpm}
           onClose={closeRsvp}
         />
       )}
@@ -1119,10 +1115,6 @@ const s = StyleSheet.create({
     minWidth: 40,
     alignItems: "center",
     justifyContent: "center",
-  },
-  speedBtnText: {
-    fontSize: 20,
-    fontWeight: "700",
   },
   navBtn: {
     padding: t.space._2,

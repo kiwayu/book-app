@@ -11,9 +11,9 @@
  *     visible word = offset + wordIndexAt(cumEnd, now - clockStart)
  *   Late frames self-correct (we index by elapsed time, we never step).
  *
- *   rebase(tokens, fromIndex, newWpm)  -> schedule whose t=0 is fromIndex.
- *   Called on mid-stream WPM changes and on resume-after-regression so the
- *   slider never skips words: the current word restarts its clock at 0.
+ *   Mid-stream WPM changes re-call schedule(tokens, newWpm, currentIndex)
+ *   and reset the clock, so the slider never skips words: the current
+ *   word restarts its clock at 0 (eng review D19).
  *
  * ORP (Optimal Recognition Point): the focal letter, slightly left of
  * center, pinned to a constant x by the overlay. Index rule ported from
@@ -216,19 +216,6 @@ export function wordIndexAt(sched: Schedule, elapsedMs: number): number {
 export function isFinished(sched: Schedule, elapsedMs: number): boolean {
   const { cumEnd } = sched;
   return cumEnd.length === 0 || elapsedMs >= cumEnd[cumEnd.length - 1];
-}
-
-/**
- * Recompute the schedule from the currently visible word at a new WPM
- * (eng review D19). The caller resets its clock origin to "now", so
- * tokens[currentIndex] restarts at t=0 and nothing skips.
- */
-export function rebase(
-  tokens: Token[],
-  currentIndex: number,
-  newWpm: number
-): Schedule {
-  return schedule(tokens, newWpm, currentIndex);
 }
 
 /** Total runtime of a schedule in ms (0 for an empty schedule). */

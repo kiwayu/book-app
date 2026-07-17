@@ -3,8 +3,8 @@
  *
  * A requestAnimationFrame loop indexes the schedule by elapsed time
  * (visible word = wordIndexAt(schedule, now - clockStart)), so dropped
- * frames self-correct instead of accumulating drift. WPM changes call
- * engine.rebase from the current word and reset the clock, so the slider
+ * frames self-correct instead of accumulating drift. WPM changes rebuild
+ * the schedule from the current word and reset the clock, so the slider
  * never skips a word (eng review D19). The ORP focal letter is pinned to
  * a constant x; only the surrounding text shifts.
  */
@@ -19,7 +19,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   schedule,
-  rebase,
   wordIndexAt,
   isFinished,
   splitOrp,
@@ -134,8 +133,8 @@ export default function RsvpOverlay({
       setWpm(w);
       onWpmChange?.(w);
       if (count === 0) return;
-      // Rebase from the current word so nothing skips; reset the clock.
-      scheduleRef.current = rebase(tokens, clampIndex(indexRef.current), w);
+      // Reschedule from the current word so nothing skips; reset the clock.
+      scheduleRef.current = schedule(tokens, w, clampIndex(indexRef.current));
       clockStartRef.current = now();
     },
     [tokens, count, clampIndex, onWpmChange]
