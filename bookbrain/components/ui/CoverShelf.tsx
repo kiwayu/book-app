@@ -1,6 +1,7 @@
 import { View, Text, FlatList, Pressable, StyleSheet } from "react-native";
 import { Image } from "expo-image";
 import { t } from "@/theme";
+import { IconSymbol } from "./icon-symbol";
 import type { BookCardProgress } from "./BookCard";
 
 export interface CoverShelfBook {
@@ -32,7 +33,7 @@ function CoverShelfItem({ item, progress, onPress, onLongPress, accent }: {
           <Image source={{ uri: item.cover_url }} style={[cs.cover, accent && cs.coverAccent]} contentFit="cover" />
         ) : (
           <View style={[cs.cover, accent && cs.coverAccent, cs.coverEmpty]}>
-            <Text style={cs.coverEmoji}>📖</Text>
+            <IconSymbol name="book.closed.fill" size={32} color={t.color.text.faint} />
           </View>
         )}
 

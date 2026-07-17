@@ -12,6 +12,7 @@ export interface LibraryPrefs {
   filterPageRange: [number, number] | null;
   filterMinRating: number | null;
   filterTagIds: number[];
+  rsvpWpm: number;
 }
 
 const DEFAULTS: LibraryPrefs = {
@@ -24,6 +25,7 @@ const DEFAULTS: LibraryPrefs = {
   filterPageRange: null,
   filterMinRating: null,
   filterTagIds: [],
+  rsvpWpm: 300,
 };
 
 export async function loadPrefs(): Promise<LibraryPrefs> {

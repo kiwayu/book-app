@@ -14,6 +14,8 @@ export interface ReadingProgress {
   percentage: number;
   last_opened: string;
   cfi: string | null;
+  /** Word index reached in RSVP speed-reading; NULL once normal reading resumes. */
+  rsvp_word_index: number | null;
 }
 
 const now = () => new Date().toISOString();
@@ -46,11 +48,30 @@ export async function updateProgress(
     `INSERT INTO reading_progress (book_id, current_page, percentage, last_opened, cfi)
      VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(book_id) DO UPDATE SET
-       current_page = excluded.current_page,
-       percentage   = excluded.percentage,
-       last_opened  = excluded.last_opened,
-       cfi          = COALESCE(excluded.cfi, reading_progress.cfi)`,
+       current_page    = excluded.current_page,
+       percentage      = excluded.percentage,
+       last_opened     = excluded.last_opened,
+       cfi             = COALESCE(excluded.cfi, reading_progress.cfi),
+       rsvp_word_index = NULL`,
     [bookId, currentPage, percentage, now(), cfi ?? null]
+  );
+}
+
+/**
+ * Persist (or clear) the RSVP speed-reading resume pointer for a book.
+ * Pass null to forget it. Creates a progress row if one doesn't exist.
+ */
+export async function setRsvpWordIndex(
+  bookId: number,
+  wordIndex: number | null
+): Promise<void> {
+  await execute(
+    `INSERT INTO reading_progress (book_id, current_page, percentage, last_opened, rsvp_word_index)
+     VALUES (?, 0, 0, ?, ?)
+     ON CONFLICT(book_id) DO UPDATE SET
+       rsvp_word_index = excluded.rsvp_word_index,
+       last_opened     = excluded.last_opened`,
+    [bookId, now(), wordIndex]
   );
 }
 
