@@ -42,9 +42,7 @@ describe("initializeDatabase — fresh install", () => {
   afterEach(() => db.close());
 
   it("creates the new tables", () => {
-    const tables = tableNames(db);
-    expect(tables).toContain("book_files");
-    expect(tables).toContain("book_locations");
+    expect(tableNames(db)).toContain("book_files");
   });
 
   it("adds rsvp_word_index to reading_progress via migration", () => {
@@ -77,18 +75,14 @@ describe("initializeDatabase — fresh install", () => {
     ins.run(3, "p3", null); // multiple NULLs OK
   });
 
-  it("deleting a book cascades to its file and locations rows", () => {
+  it("deleting a book cascades to its file row", () => {
     db.exec(`PRAGMA foreign_keys = ON`);
     db.exec(`INSERT INTO books (id, title) VALUES (9, 'x')`);
     db.exec(
       `INSERT INTO book_files (book_id, file_path, file_type) VALUES (9, 'p', 'epub')`
     );
-    db.exec(
-      `INSERT INTO book_locations (book_id, locations) VALUES (9, '[]')`
-    );
     db.exec(`DELETE FROM books WHERE id = 9`);
     expect(db.prepare(`SELECT count(*) c FROM book_files`).get()).toEqual({ c: 0 });
-    expect(db.prepare(`SELECT count(*) c FROM book_locations`).get()).toEqual({ c: 0 });
   });
 });
 
@@ -97,7 +91,7 @@ describe("initializeDatabase — upgrade from pre-T3 schema (CRITICAL regression
     const db = new Database(":memory:");
     // Simulate the live pre-upgrade database: the original books table
     // (before the description/publisher/... ALTERs), reading_progress
-    // WITHOUT rsvp_word_index, no book_files / book_locations.
+    // WITHOUT rsvp_word_index, no book_files.
     db.exec(`
       CREATE TABLE books (
         id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,9 +124,7 @@ describe("initializeDatabase — upgrade from pre-T3 schema (CRITICAL regression
     expect(row.cfi).toBe("epubcfi(/6/4!/4/2)");
     expect(row.rsvp_word_index).toBeNull(); // new column, default NULL
 
-    expect(tableNames(db)).toEqual(
-      expect.arrayContaining(["book_files", "book_locations"])
-    );
+    expect(tableNames(db)).toContain("book_files");
     db.close();
   });
 });

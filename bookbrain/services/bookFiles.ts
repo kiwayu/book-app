@@ -27,15 +27,6 @@ export async function getFileForBook(
   );
 }
 
-export async function findFileByHash(
-  hash: string
-): Promise<BookFileRow | null> {
-  return getOne<BookFileRow>(
-    `SELECT * FROM book_files WHERE content_hash = ? LIMIT 1`,
-    [hash]
-  );
-}
-
 export async function insertBookFile(row: {
   book_id: number;
   file_path: string;
@@ -47,19 +38,6 @@ export async function insertBookFile(row: {
     `INSERT INTO book_files (book_id, file_path, file_type, file_size, content_hash)
      VALUES (?, ?, ?, ?, ?)`,
     [row.book_id, row.file_path, row.file_type, row.file_size, row.content_hash]
-  );
-}
-
-/** Re-point a missing-file row at a freshly imported file (D26 relink). */
-export async function relinkBookFile(
-  id: number,
-  filePath: string,
-  fileSize: number | null,
-  contentHash: string | null
-): Promise<void> {
-  await execute(
-    `UPDATE book_files SET file_path = ?, file_size = ?, content_hash = ? WHERE id = ?`,
-    [filePath, fileSize, contentHash, id]
   );
 }
 
