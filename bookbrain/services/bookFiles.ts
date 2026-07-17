@@ -27,6 +27,15 @@ export async function getFileForBook(
   );
 }
 
+export async function findFileByHash(
+  hash: string
+): Promise<BookFileRow | null> {
+  return getOne<BookFileRow>(
+    `SELECT * FROM book_files WHERE content_hash = ? LIMIT 1`,
+    [hash]
+  );
+}
+
 export async function insertBookFile(row: {
   book_id: number;
   file_path: string;
