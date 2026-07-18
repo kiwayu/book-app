@@ -2,6 +2,7 @@ import {
   fileExtension,
   ebookKindOf,
   safeStorageName,
+  looksLikeZip,
 } from "../fileValidation";
 
 describe("fileExtension", () => {
@@ -64,5 +65,18 @@ describe("safeStorageName", () => {
   it("never returns an empty name", () => {
     expect(safeStorageName("")).toBe("book");
     expect(safeStorageName("///")).toBe("book");
+  });
+});
+
+describe("looksLikeZip", () => {
+  it("accepts base64 that decodes to a PK header", () => {
+    // "PK\x03\x04..." (every epub is a zip) encodes to "UEsD..."
+    expect(looksLikeZip("UEsDBA==")).toBe(true);
+  });
+
+  it("rejects non-zip content and empty files", () => {
+    expect(looksLikeZip("JVBERi0=")).toBe(false); // "%PDF-"
+    expect(looksLikeZip("PGh0bWw+")).toBe(false); // "<html>"
+    expect(looksLikeZip("")).toBe(false); // zero-byte file
   });
 });

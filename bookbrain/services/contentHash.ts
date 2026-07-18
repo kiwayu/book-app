@@ -9,8 +9,9 @@
  * and position/length only work with base64 encoding.
  *
  * Collisions (same size + head + tail, different middle) are accepted:
- * the import flow shows "already in library" with an "import anyway"
- * override, so a collision can never silently drop a book.
+ * the import flow reports the file as "already in library". Known ceiling:
+ * a genuinely different book that collides cannot be imported — add an
+ * "import anyway" override if that ever happens in practice.
  */
 
 import * as FileSystem from "expo-file-system/legacy";

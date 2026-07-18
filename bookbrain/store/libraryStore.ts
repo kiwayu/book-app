@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { execute, getAll, getOne } from "@/db/database";
 import { touchLastOpened, markProgressComplete } from "@/services/readingTracker";
+import { removeBookFileFromDisk } from "@/services/importBook";
 import type { GoogleBook } from "@/services/googleBooks";
 
 export type BookStatus = "want_to_read" | "reading" | "finished" | "dnf";
@@ -333,6 +334,9 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   },
 
   deleteBook: async (bookId) => {
+    // Disk first: after the books row cascades away, the file row (and
+    // with it the path) is gone. Best-effort — never blocks the delete.
+    await removeBookFileFromDisk(bookId);
     await execute("DELETE FROM reading_sessions WHERE book_id = ?", [bookId]);
     await execute("DELETE FROM reading_progress WHERE book_id = ?", [bookId]);
     await execute("DELETE FROM book_tags WHERE book_id = ?", [bookId]);

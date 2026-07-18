@@ -20,14 +20,15 @@
 
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
-import { ebookKindOf, safeStorageName } from "./fileValidation";
+import { ebookKindOf, looksLikeZip, safeStorageName } from "./fileValidation";
 
 const BOOKS_DIR = () => `${FileSystem.documentDirectory}books/`;
 const READER_DIR = () => `${FileSystem.documentDirectory}reader/`;
 
 export interface PickedEbook {
   uri: string;          // file:// URI inside documentDirectory/books/
-  name: string;         // stored file name
+  name: string;         // stored file name (unique within books/)
+  originalName: string; // name as picked — use for user-facing titles
   kind: "epub" | "pdf";
   size: number | null;
 }
@@ -64,17 +65,64 @@ export async function pickAndStoreLocalEbook(): Promise<PickedEbook | null> {
   }
 
   await FileSystem.makeDirectoryAsync(BOOKS_DIR(), { intermediates: true });
-  const storedName = safeStorageName(displayName);
-  const dest = `${BOOKS_DIR()}${storedName}`;
+  const { dest, storedName } = await uniqueDest(safeStorageName(displayName));
   await FileSystem.copyAsync({ from: asset.uri, to: dest });
+
+  if (kind === "epub") {
+    // Every epub is a zip; catch corrupt/zero-byte/mislabeled files here
+    // instead of failing later inside the reader WebView.
+    const head = await FileSystem.readAsStringAsync(dest, {
+      encoding: FileSystem.EncodingType.Base64,
+      position: 0,
+      length: 4,
+    }).catch(() => "");
+    if (!looksLikeZip(head)) {
+      await removeStoredEbook(dest);
+      throw new ImportValidationError(
+        `"${displayName}" doesn't look like a valid EPUB file.`
+      );
+    }
+  }
 
   const info = await FileSystem.getInfoAsync(dest);
   return {
     uri: dest,
     name: storedName,
+    originalName: displayName,
     kind,
     size: info.exists && "size" in info ? (info.size ?? null) : null,
   };
+}
+
+/**
+ * First non-existing path in books/ for this name: "b.epub", "b-1.epub",
+ * "b-2.epub"… Different books often share a file name ("book.epub");
+ * overwriting would silently corrupt the earlier book's file.
+ */
+async function uniqueDest(
+  name: string
+): Promise<{ dest: string; storedName: string }> {
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  let storedName = name;
+  // ponytail: O(n) existence probes; fine until a library has thousands
+  // of identically named files.
+  for (let n = 1; ; n++) {
+    const info = await FileSystem.getInfoAsync(`${BOOKS_DIR()}${storedName}`);
+    if (!info.exists) break;
+    storedName = `${stem}-${n}${ext}`;
+  }
+  return { dest: `${BOOKS_DIR()}${storedName}`, storedName };
+}
+
+/** Best-effort delete of a stored ebook copy; never throws. */
+export async function removeStoredEbook(uri: string): Promise<void> {
+  try {
+    await FileSystem.deleteAsync(uri, { idempotent: true });
+  } catch {
+    // cleanup only — an undeletable stray file must not break the flow
+  }
 }
 
 /**

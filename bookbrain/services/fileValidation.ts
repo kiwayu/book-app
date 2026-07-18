@@ -27,6 +27,15 @@ export function ebookKindOf(name: string): EbookKind | null {
   return EXT_TO_KIND[fileExtension(name)] ?? null;
 }
 
+/**
+ * True when the base64 of a file's first bytes starts with a ZIP local
+ * header ("PK.."). Every valid epub is a zip; "" (zero-byte file) fails.
+ */
+export function looksLikeZip(headBase64: string): boolean {
+  // "PK" + any third byte encodes to base64 starting with "UEs"
+  return headBase64.startsWith("UEs");
+}
+
 /** Sanitize a file name for storage under documentDirectory/books/. */
 export function safeStorageName(name: string): string {
   const base = name.split(/[\\/]/).pop() ?? "book";

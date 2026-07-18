@@ -44,6 +44,19 @@ export async function getOne<T = Record<string, unknown>>(
   return database.getFirstAsync<T>(sql, params);
 }
 
+/**
+ * Run `fn` inside a SQLite transaction: all `execute` calls made within
+ * it commit together or roll back together if it throws.
+ */
+export async function withTransaction<T>(fn: () => Promise<T>): Promise<T> {
+  const database = await getDatabase();
+  let result!: T;
+  await database.withTransactionAsync(async () => {
+    result = await fn();
+  });
+  return result;
+}
+
 export async function closeDatabase(): Promise<void> {
   if (db) {
     await db.closeAsync();

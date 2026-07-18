@@ -4,7 +4,11 @@
  * reader tab uses to find a book's file (book_files first, legacy
  * AsyncStorage epub_paths as fallback).
  */
-import { importBookFromDevice, resolveBookSource } from "../importBook";
+import {
+  importBookFromDevice,
+  resolveBookSource,
+  removeBookFileFromDisk,
+} from "../importBook";
 
 jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock")
@@ -12,6 +16,7 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 jest.mock("../localEpub", () => ({
   ImportValidationError: class ImportValidationError extends Error {},
   pickAndStoreLocalEbook: jest.fn(),
+  removeStoredEbook: jest.fn(),
 }));
 jest.mock("../contentHash", () => ({
   hashFile: jest.fn(async (uri: string) => ({ hash: `hash:${uri}`, size: 7 })),
@@ -23,10 +28,35 @@ const state = {
   entries: [] as Array<{ book_id: number; status: string }>,
   files: [] as Array<Record<string, unknown>>,
   nextId: 1,
+  /** When set, execute() throws for any SQL containing this substring. */
+  failOn: null as string | null,
 };
 
 jest.mock("@/db/database", () => ({
+  withTransaction: jest.fn(async (fn: () => Promise<unknown>) => {
+    const snap = {
+      books: [...state.books],
+      entries: [...state.entries],
+      files: [...state.files],
+      nextId: state.nextId,
+    };
+    try {
+      return await fn();
+    } catch (e) {
+      state.books.length = 0;
+      state.books.push(...snap.books);
+      state.entries.length = 0;
+      state.entries.push(...snap.entries);
+      state.files.length = 0;
+      state.files.push(...snap.files);
+      state.nextId = snap.nextId;
+      throw e;
+    }
+  }),
   execute: jest.fn(async (sql: string, params: unknown[] = []) => {
+    if (state.failOn && sql.includes(state.failOn)) {
+      throw new Error(`injected db failure on: ${state.failOn}`);
+    }
     if (sql.includes("INSERT INTO books")) {
       state.books.push({ id: state.nextId, title: params[0] as string });
       return { changes: 1, lastInsertRowId: state.nextId++ };
@@ -52,9 +82,10 @@ jest.mock("@/db/database", () => ({
 }));
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { pickAndStoreLocalEbook } from "../localEpub";
+import { pickAndStoreLocalEbook, removeStoredEbook } from "../localEpub";
 
 const pick = pickAndStoreLocalEbook as jest.Mock;
+const removeStored = removeStoredEbook as jest.Mock;
 
 beforeEach(async () => {
   jest.clearAllMocks();
@@ -62,6 +93,7 @@ beforeEach(async () => {
   state.entries.length = 0;
   state.files.length = 0;
   state.nextId = 1;
+  state.failOn = null;
   await AsyncStorage.clear();
 });
 
@@ -76,6 +108,7 @@ describe("importBookFromDevice", () => {
     pick.mockResolvedValue({
       uri: "file:///docs/books/My_Great_Book.epub",
       name: "My_Great_Book.epub",
+      originalName: "My_Great_Book.epub",
       kind: "epub",
       size: 7,
     });
@@ -99,6 +132,7 @@ describe("importBookFromDevice", () => {
     pick.mockResolvedValue({
       uri: "file:///docs/books/dup.epub",
       name: "dup.epub",
+      originalName: "dup.epub",
       kind: "epub",
       size: 7,
     });
@@ -111,15 +145,91 @@ describe("importBookFromDevice", () => {
     expect(state.files).toHaveLength(1);
   });
 
-  it("rejects PDFs for now with a validation error", async () => {
+  it("titles the book from the original file name, not the stored one", async () => {
+    pick.mockResolvedValue({
+      uri: "file:///docs/books/book-2.epub", // uniquified on disk
+      name: "book-2.epub",
+      originalName: "My Great Book.epub",
+      kind: "epub",
+      size: 7,
+    });
+    const res = await importBookFromDevice();
+    expect(res?.title).toBe("My Great Book");
+  });
+
+  it("removes the freshly stored copy when the import is a duplicate", async () => {
+    // hashFile mock hashes by uri, so the same uri twice = same content
+    pick.mockResolvedValue({
+      uri: "file:///docs/books/dup.epub",
+      name: "dup.epub",
+      originalName: "dup.epub",
+      kind: "epub",
+      size: 7,
+    });
+    await importBookFromDevice(); // imported
+    removeStored.mockClear();
+    const second = await importBookFromDevice(); // duplicate
+
+    expect(second?.duplicate).toBe(true);
+    expect(removeStored).toHaveBeenCalledWith("file:///docs/books/dup.epub");
+  });
+
+  it("rejects PDFs for now with a validation error and cleans up the copy", async () => {
     pick.mockResolvedValue({
       uri: "file:///docs/books/paper.pdf",
       name: "paper.pdf",
+      originalName: "paper.pdf",
       kind: "pdf",
       size: 7,
     });
     await expect(importBookFromDevice()).rejects.toThrow(/PDF/);
     expect(state.books).toHaveLength(0);
+    expect(removeStored).toHaveBeenCalledWith("file:///docs/books/paper.pdf");
+  });
+
+  it("rolls back all rows and removes the copy when a DB insert fails", async () => {
+    state.failOn = "INSERT INTO book_files";
+    pick.mockResolvedValue({
+      uri: "file:///docs/books/crash.epub",
+      name: "crash.epub",
+      originalName: "crash.epub",
+      kind: "epub",
+      size: 7,
+    });
+
+    await expect(importBookFromDevice()).rejects.toThrow(/injected db failure/);
+
+    expect(state.books).toHaveLength(0); // no ghost book
+    expect(state.entries).toHaveLength(0);
+    expect(state.files).toHaveLength(0);
+    expect(removeStored).toHaveBeenCalledWith("file:///docs/books/crash.epub");
+  });
+});
+
+describe("removeBookFileFromDisk", () => {
+  it("deletes the stored local file for a book", async () => {
+    state.files.push({
+      book_id: 3,
+      file_path: "file:///docs/books/b.epub",
+      content_hash: null,
+    });
+    await removeBookFileFromDisk(3);
+    expect(removeStored).toHaveBeenCalledWith("file:///docs/books/b.epub");
+  });
+
+  it("leaves remote files alone", async () => {
+    state.files.push({
+      book_id: 4,
+      file_path: "https://example.com/b.epub",
+      content_hash: null,
+    });
+    await removeBookFileFromDisk(4);
+    expect(removeStored).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op for a book with no file row", async () => {
+    await expect(removeBookFileFromDisk(99)).resolves.toBeUndefined();
+    expect(removeStored).not.toHaveBeenCalled();
   });
 });
 
