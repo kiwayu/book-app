@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { migrateEpubPaths } from '@/services/epubPathsMigration';
 
@@ -19,15 +20,18 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <ThemeProvider value={DarkTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="modal"
-          options={{ presentation: 'modal', headerShown: false }}
-        />
-      </Stack>
-      <StatusBar style="light" />
-    </ThemeProvider>
+    // Swipeable rows (library) require this ancestor on native.
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider value={DarkTheme}>
+        <Stack>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="modal"
+            options={{ presentation: 'modal', headerShown: false }}
+          />
+        </Stack>
+        <StatusBar style="light" />
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
