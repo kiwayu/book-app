@@ -16,7 +16,7 @@ import {
   Alert,
   Platform,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import {
   buildReaderHtml,
@@ -508,6 +508,7 @@ export default function ReaderScreen({
   const sub        = THEME_SUB[theme];
   const accent     = THEME_ACCENT[theme];
   const readingTime = readingTimeLabel(currentPage, totalPages);
+  const insets = useSafeAreaInsets();
 
   const fontSizeIdx   = useMemo(() => FONT_SIZES.indexOf(settings.fontSize), [settings.fontSize]);
   const lineHeightIdx = useMemo(() => LINE_HEIGHTS.indexOf(settings.lineHeight), [settings.lineHeight]);
@@ -531,7 +532,9 @@ export default function ReaderScreen({
           allowUniversalAccessFromFileURLs
           allowingReadAccessToURL={readAccessRoot()}
           mixedContentMode="always"
-          style={s.webView}
+          // Keep the page inside the safe area; edge-to-edge Android
+          // otherwise renders the book under the status/navigation bars.
+          style={[s.webView, { marginTop: insets.top, marginBottom: insets.bottom }]}
         />
       )}
 

@@ -431,6 +431,14 @@ export default function LibraryScreen() {
       await loadLibrary();
       if (res.duplicate) {
         Alert.alert("Already in library", `"${res.title}" is already in your library.`);
+      } else {
+        // Make the new book visible: persisted tab/search/filters/collection
+        // would otherwise hide a fresh want_to_read import.
+        setActiveTab("want_to_read");
+        setSearchQuery("");
+        setActiveSmartCollection(null);
+        setFilters(EMPTY_FILTERS);
+        Alert.alert("Book added", `"${res.title}" was added to Want to Read.`);
       }
     } catch (e) {
       Alert.alert(
