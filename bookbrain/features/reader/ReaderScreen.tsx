@@ -538,14 +538,8 @@ export default function ReaderScreen({
         />
       )}
 
-      {/* Tap zones — left / center / right */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-        <View style={s.tapRow} pointerEvents="box-none">
-          <Pressable style={s.tapLeft}   onPress={prevPage} />
-          <Pressable style={s.tapCenter} onPress={showAndReset} />
-          <Pressable style={s.tapRight}  onPress={nextPage} />
-        </View>
-      </View>
+      {/* Tap/swipe navigation lives inside the WebView (readerHtml):
+          an RN overlay here would swallow the swipe gestures. */}
 
       {/* ── Top bar ──────────────────────────────── */}
       {showControls && !showSettings && !showToc && !showBookmarks && !showHighlights && (
@@ -1025,21 +1019,6 @@ const s = StyleSheet.create({
     flex: 1,
   },
   webView: {
-    flex: 1,
-  },
-
-  /* tap zones */
-  tapRow: {
-    flex: 1,
-    flexDirection: "row",
-  },
-  tapLeft: {
-    flex: 1,
-  },
-  tapCenter: {
-    flex: 2,
-  },
-  tapRight: {
     flex: 1,
   },
 

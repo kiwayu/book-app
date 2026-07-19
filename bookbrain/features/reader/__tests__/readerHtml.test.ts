@@ -33,4 +33,13 @@ describe("buildReaderHtml — self-contained document", () => {
     expect(html).toContain("window.readerApi");
     expect(html).toContain("getChapterText");
   });
+
+  it("styles through epub.js themes; margins live on the outer container", () => {
+    // Hand-injected <style> tags bypassed epub.js layout and clipped
+    // text off the right/bottom page edges (2026-07-19 device bug).
+    expect(html).toContain("rendition.themes.default");
+    expect(html).toContain("rendition.themes.fontSize");
+    expect(html).not.toContain("injectIntoView");
+    expect(html).toContain(`padding:0 ${DEFAULT_SETTINGS.marginWidth}px`);
+  });
 });

@@ -47,7 +47,7 @@ export function buildReaderHtml(
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden}
 body{background:${initBg};transition:background .2s}
-#viewer{width:100%;height:100%}
+#viewer{width:100%;height:100%;padding:0 ${settings.marginWidth}px}
 #loading{
   position:fixed;inset:0;
   background:${initBg};
@@ -116,41 +116,34 @@ function chapterOf(href){
   return"";
 }
 
-/* ── CSS for chapter iframes ──────────────────────── */
-function chapterCss(cfg){
-  var th=THEMES[cfg.theme]||THEMES.light;
-  return[
-    "html,body{",
-    "  background:"+th.bg+"!important;",
-    "  color:"+th.fg+"!important;",
-    "  font-family:"+(FONTS[cfg.font]||FONTS.georgia)+"!important;",
-    "  font-size:"+cfg.fontSize+"px!important;",
-    "  line-height:"+cfg.lineHeight+"!important;",
-    "  padding:0 "+cfg.marginWidth+"px!important;",
-    "}",
-    "a{color:"+th.link+"!important;}",
-    "p{margin-bottom:.75em;}",
-    "h1,h2,h3,h4,h5{margin:1em 0 .5em;font-family:"+(FONTS[cfg.font]||FONTS.georgia)+"!important;}",
-    "img{max-width:100%!important;height:auto!important;}",
-  ].join("\\n");
-}
-
-function injectIntoView(view,cfg){
-  try{
-    var doc=view.document||(view.iframe&&view.iframe.contentDocument);
-    if(!doc)return;
-    var el=doc.getElementById("bb-st");
-    if(el)el.remove();
-    var st=doc.createElement("style");
-    st.id="bb-st";st.textContent=chapterCss(cfg);
-    (doc.head||doc.documentElement).appendChild(st);
-  }catch(e){}
-}
-
-function injectAll(cfg){
-  if(!rendition||!rendition.manager)return;
-  var views=(rendition.manager.views&&(rendition.manager.views._views||rendition.manager.views.views))||[];
-  for(var i=0;i<views.length;i++)injectIntoView(views[i],cfg);
+/* ── theme plumbing ───────────────────────────────────
+   Styling goes through epub.js's themes API, never hand-injected
+   <style> tags: themes participate in epub.js's own layout pass, so
+   pagination is computed WITH our font/line-height. Injecting styles
+   after layout is what clipped text off the right and bottom edges.
+   Page margins live on the OUTER #viewer container (box-sizing:
+   border-box), so epub.js sizes its columns to the padded box. */
+function applyTheme(){
+  var th=THEMES[s.theme]||THEMES.light;
+  document.body.style.background=th.bg;
+  var loadEl=document.getElementById("loading");
+  if(loadEl)loadEl.style.background=th.bg;
+  var v=document.getElementById("viewer");
+  if(v)v.style.padding="0 "+s.marginWidth+"px";
+  if(!rendition)return;
+  rendition.themes.default({
+    "html,body":{
+      "background":th.bg+" !important",
+      "color":th.fg+" !important",
+      "font-family":(FONTS[s.font]||FONTS.georgia)+" !important",
+      "line-height":String(s.lineHeight)+" !important"
+    },
+    "a":{"color":th.link+" !important"},
+    "p":{"margin-bottom":".75em"},
+    "h1,h2,h3,h4,h5":{"margin":"1em 0 .5em"},
+    "img":{"max-width":"100% !important","height":"auto !important"}
+  });
+  rendition.themes.fontSize(s.fontSize+"px");
 }
 
 /* ── apply settings ───────────────────────────────── */
@@ -160,13 +153,13 @@ function applySettings(json){
   var prevLayout=s.font+"_"+s.fontSize+"_"+s.lineHeight+"_"+s.marginWidth;
   Object.assign(s,incoming);
   var newLayout=s.font+"_"+s.fontSize+"_"+s.lineHeight+"_"+s.marginWidth;
-  var th=THEMES[s.theme]||THEMES.light;
-  document.body.style.background=th.bg;
-  var loadEl=document.getElementById("loading");
-  if(loadEl)loadEl.style.background=th.bg;
-  injectAll(s);
-  if(newLayout!==prevLayout&&rendition&&currentCfi){
-    rendition.display(currentCfi).catch(function(){});
+  applyTheme();
+  if(newLayout!==prevLayout&&rendition){
+    try{
+      var v=document.getElementById("viewer");
+      rendition.resize(v.clientWidth-2*s.marginWidth,v.clientHeight);
+    }catch(e){}
+    if(currentCfi)rendition.display(currentCfi).catch(function(){});
   }
 }
 
@@ -178,7 +171,7 @@ try{
     spread:"none",flow:"paginated"
   });
 
-  rendition.on("rendered",function(section,view){injectIntoView(view,s);});
+  applyTheme();
 
   var dp=currentCfi?rendition.display(currentCfi):rendition.display();
   dp.then(function(){hideLoading();post("ready");})
@@ -219,7 +212,12 @@ try{
     if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>40){
       dx>0?rendition.prev():rendition.next();
     } else if(Math.abs(dx)<12&&Math.abs(dy)<12){
-      post("tap",{});
+      /* MoonReader-style zones: left third = back, right third =
+         forward, middle = toggle controls. */
+      var x=e.changedTouches[0].clientX,w=window.innerWidth;
+      if(x<w*0.3)rendition.prev();
+      else if(x>w*0.7)rendition.next();
+      else post("tap",{});
     }
   });
 
