@@ -15,6 +15,7 @@ import {
   AppState,
   Alert,
   Platform,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
@@ -35,6 +36,7 @@ import {
 import { loadPrefs, savePrefs } from "@/services/preferences";
 import RsvpOverlay from "./rsvp/RsvpOverlay";
 import { tokenizeParagraphs, type Token } from "./rsvp/engine";
+import { tapZone } from "./tapZones";
 import {
   addHighlight,
   getHighlightsForBook,
@@ -525,6 +527,7 @@ export default function ReaderScreen({
   const accent     = THEME_ACCENT[theme];
   const readingTime = readingTimeLabel(currentPage, totalPages);
   const insets = useSafeAreaInsets();
+  const { width: winWidth } = useWindowDimensions();
   const chapterLeft = chapterPages
     ? `${Math.max(0, chapterPages - chapterPage)} left in chapter`
     : "";
@@ -557,8 +560,26 @@ export default function ReaderScreen({
         />
       )}
 
-      {/* Tap/swipe navigation lives inside the WebView (readerHtml):
-          an RN overlay here would swallow the swipe gestures. */}
+      {/* Tap zones — reliable native layer. In-WebView tap detection did
+          not fire on Android (epub.js iframe), so the RN overlay owns taps:
+          left third = back, right third = forward, middle = menu/options.
+          Sits above the WebView, below the control bars (which render later
+          and keep their own touch targets).
+          ponytail: overlay intercepts touches, so in-book long-press text
+          selection is superseded; add a toolbar "highlight" affordance if
+          selection is wanted back. */}
+      {htmlReady && !showRsvp && (
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={(e) => {
+            const zone = tapZone(e.nativeEvent.locationX, winWidth);
+            if (zone === "prev") prevPage();
+            else if (zone === "next") nextPage();
+            else if (showControls) setShowControls(false);
+            else showAndReset();
+          }}
+        />
+      )}
 
       {/* ── Always-on progress footer (hidden when full controls show) ── */}
       {!showControls && !showSettings && !showToc && !showBookmarks && !showHighlights && (
