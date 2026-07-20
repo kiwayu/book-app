@@ -208,21 +208,35 @@ try{
     });
   });
 
-  var sx=0,sy=0;
-  rendition.on("touchstart",function(e){sx=e.changedTouches[0].clientX;sy=e.changedTouches[0].clientY;});
-  rendition.on("touchend",function(e){
-    var dx=e.changedTouches[0].clientX-sx;
-    var dy=e.changedTouches[0].clientY-sy;
-    if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>40){
-      dx>0?rendition.prev():rendition.next();
-    } else if(Math.abs(dx)<12&&Math.abs(dy)<12){
-      /* MoonReader-style zones: left third = back, right third =
-         forward, middle = toggle controls. */
-      var x=e.changedTouches[0].clientX,w=window.innerWidth;
-      if(x<w*0.3)rendition.prev();
-      else if(x>w*0.7)rendition.next();
-      else post("tap",{});
-    }
+  /* Tap/swipe: epub.js does NOT emit rendition touch events, so bind real
+     DOM listeners to each chapter iframe document as it renders. Zones use
+     the iframe's own width (the book text lives inside it). */
+  function zoneAction(x,w){
+    if(x<w*0.3)rendition.prev();
+    else if(x>w*0.7)rendition.next();
+    else post("tap",{});
+  }
+  function wireInput(doc){
+    if(!doc||doc.__bbWired)return;
+    doc.__bbWired=true;
+    var win=doc.defaultView||window,sx=0,sy=0,moved=false;
+    doc.addEventListener("touchstart",function(e){
+      var t=e.changedTouches[0];sx=t.clientX;sy=t.clientY;moved=false;
+    },{passive:true});
+    doc.addEventListener("touchend",function(e){
+      var t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;
+      if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>40){dx>0?rendition.prev():rendition.next();}
+      else if(Math.abs(dx)<12&&Math.abs(dy)<12){moved=true;zoneAction(t.clientX,win.innerWidth);}
+    },{passive:true});
+    /* Non-touch (web/dev): click drives the same zones. Guard so a click
+       synthesized after a touch does not double-fire. */
+    doc.addEventListener("click",function(e){
+      if(moved){moved=false;return;}
+      zoneAction(e.clientX,win.innerWidth);
+    });
+  }
+  rendition.on("rendered",function(section,view){
+    wireInput((view&&view.document)||(view&&view.iframe&&view.iframe.contentDocument));
   });
 
 }catch(err){showError("Failed to load book: "+(err&&err.message||"unknown error"));}

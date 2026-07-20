@@ -478,9 +478,21 @@ export default function ReaderScreen({
             setRsvpChapter(msg.chapter || chapter || "");
             // Resume only if the saved index still lands inside this chapter.
             const saved = rsvpStartIdxRef.current;
-            rsvpStartIdxRef.current =
-              saved > 0 && saved < tokens.length ? saved : 0;
-            setShowRsvp(true);
+            const canResume = saved > 0 && saved < tokens.length;
+            if (canResume) {
+              const pct = Math.round((saved / tokens.length) * 100);
+              Alert.alert(
+                "Speed reading",
+                `Resume where you left off (${pct}% through this chapter) or start from the beginning?`,
+                [
+                  { text: "Start over", onPress: () => { rsvpStartIdxRef.current = 0; setShowRsvp(true); } },
+                  { text: "Resume", onPress: () => { rsvpStartIdxRef.current = saved; setShowRsvp(true); } },
+                ]
+              );
+            } else {
+              rsvpStartIdxRef.current = 0;
+              setShowRsvp(true);
+            }
             break;
           }
           case "textSelected": {

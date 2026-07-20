@@ -34,6 +34,14 @@ describe("buildReaderHtml — self-contained document", () => {
     expect(html).toContain("getChapterText");
   });
 
+  it("binds tap/swipe to real chapter-document events, not phantom rendition events", () => {
+    // epub.js never emits rendition 'touchstart'/'touchend'; binding there
+    // left every tap dead (2026-07-20 device bug). Must wire per rendered view.
+    expect(html).toContain('rendition.on("rendered"');
+    expect(html).toContain("addEventListener");
+    expect(html).not.toContain('rendition.on("touchstart"');
+  });
+
   it("reports chapter-relative page position for the progress footer", () => {
     expect(html).toContain("chapterPage:");
     expect(html).toContain("chapterPages:");
