@@ -195,11 +195,15 @@ try{
     currentCfi=cfi;
     var page=0;
     if(book.locations&&cfi){try{page=book.locations.locationFromCfi(cfi)||0;}catch(e){}}
+    /* epub.js already paginates the current section; reuse its counts. */
+    var disp=(loc.start&&loc.start.displayed)||{};
     post("locationChanged",{
       cfi:cfi,
       percentage:Math.round(pct*10000)/100,
       currentPage:page,
       totalPages:totalPages,
+      chapterPage:disp.page||0,
+      chapterPages:disp.total||0,
       chapter:chapterOf(loc.start.href||"")
     });
   });

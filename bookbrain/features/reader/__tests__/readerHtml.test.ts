@@ -34,6 +34,12 @@ describe("buildReaderHtml — self-contained document", () => {
     expect(html).toContain("getChapterText");
   });
 
+  it("reports chapter-relative page position for the progress footer", () => {
+    expect(html).toContain("chapterPage:");
+    expect(html).toContain("chapterPages:");
+    expect(html).toContain("loc.start.displayed");
+  });
+
   it("styles through epub.js themes; margins live on the outer container", () => {
     // Hand-injected <style> tags bypassed epub.js layout and clipped
     // text off the right/bottom page edges (2026-07-19 device bug).

@@ -171,6 +171,8 @@ export default function ReaderScreen({
   const [percentage,    setPercentage]    = useState(0);
   const [currentPage,   setCurrentPage]   = useState(0);
   const [totalPages,    setTotalPages]    = useState(0);
+  const [chapterPage,   setChapterPage]   = useState(0);
+  const [chapterPages,  setChapterPages]  = useState(0);
   const [highlights,    setHighlights]    = useState<Highlight[]>([]);
   const [bookmarks,     setBookmarks]     = useState<Bookmark[]>([]);
   const [showBookmarks, setShowBookmarks] = useState(false);
@@ -444,6 +446,8 @@ export default function ReaderScreen({
           case "locationChanged":
             setPercentage(msg.percentage ?? 0);
             setCurrentPage(msg.currentPage ?? 0);
+            setChapterPage(msg.chapterPage ?? 0);
+            setChapterPages(msg.chapterPages ?? 0);
             setChapter(msg.chapter ?? "");
             if (startPageRef.current === 0 && msg.currentPage > 0) {
               startPageRef.current = msg.currentPage;
@@ -509,6 +513,9 @@ export default function ReaderScreen({
   const accent     = THEME_ACCENT[theme];
   const readingTime = readingTimeLabel(currentPage, totalPages);
   const insets = useSafeAreaInsets();
+  const chapterLeft = chapterPages
+    ? `${Math.max(0, chapterPages - chapterPage)} left in chapter`
+    : "";
 
   const fontSizeIdx   = useMemo(() => FONT_SIZES.indexOf(settings.fontSize), [settings.fontSize]);
   const lineHeightIdx = useMemo(() => LINE_HEIGHTS.indexOf(settings.lineHeight), [settings.lineHeight]);
@@ -540,6 +547,29 @@ export default function ReaderScreen({
 
       {/* Tap/swipe navigation lives inside the WebView (readerHtml):
           an RN overlay here would swallow the swipe gestures. */}
+
+      {/* ── Always-on progress footer (hidden when full controls show) ── */}
+      {!showControls && !showSettings && !showToc && !showBookmarks && !showHighlights && (
+        <View style={[s.footer, { paddingBottom: insets.bottom }]} pointerEvents="none">
+          <View style={[s.progressTrack, { backgroundColor: barBorder }]}>
+            <View
+              style={[
+                s.progressFill,
+                { backgroundColor: accent, width: `${Math.min(percentage, 100)}%` as `${number}%` },
+              ]}
+            />
+          </View>
+          <View style={s.statsRow}>
+            <Text style={[s.statText, { color: sub }]}>
+              {currentPage && totalPages ? `${currentPage} / ${totalPages}` : ""}
+            </Text>
+            <Text style={[s.statText, { color: sub }]}>{chapterLeft}</Text>
+            <Text style={[s.statText, { color: sub }]}>
+              {percentage > 0 ? `${percentage.toFixed(1)}%` : ""}
+            </Text>
+          </View>
+        </View>
+      )}
 
       {/* ── Top bar ──────────────────────────────── */}
       {showControls && !showSettings && !showToc && !showBookmarks && !showHighlights && (
@@ -603,7 +633,7 @@ export default function ReaderScreen({
               <Text style={[s.statText, { color: sub }]}>
                 {currentPage && totalPages ? `${currentPage} / ${totalPages}` : ""}
               </Text>
-              <Text style={[s.statText, { color: sub }]}>{readingTime}</Text>
+              <Text style={[s.statText, { color: sub }]}>{chapterLeft || readingTime}</Text>
               <Text style={[s.statText, { color: sub }]}>
                 {percentage > 0 ? `${percentage.toFixed(1)}%` : ""}
               </Text>
@@ -1060,6 +1090,15 @@ const s = StyleSheet.create({
     left: 0,
     right: 0,
     borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  /* always-on slim progress footer (no background: sits over the page edge) */
+  footer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: t.space._5,
+    paddingTop: t.space._2,
   },
   progressWrap: {
     paddingHorizontal: t.space._5,
