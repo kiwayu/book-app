@@ -13,7 +13,6 @@ import {
   type LayoutChangeEvent,
 } from "react-native";
 import { useRouter } from "expo-router";
-import Swipeable from "react-native-gesture-handler/Swipeable";
 import {
   useLibraryStore,
   type BookWithEntry,
@@ -23,7 +22,7 @@ import {
 import { t } from "@/theme";
 import { type BookCardProgress } from "@/components/ui/BookCard";
 import { CoverShelf, type CoverShelfBook } from "@/components/ui/CoverShelf";
-import { CompactBookRow } from "@/components/ui/CompactBookRow";
+import { CoverGrid } from "@/components/ui/CoverGrid";
 import { BookDetailSheet } from "@/components/ui/BookDetailSheet";
 import { SegmentedControl, type Segment } from "@/components/ui/SegmentedControl";
 import { AlphabetIndex } from "@/components/ui/AlphabetIndex";
@@ -244,7 +243,6 @@ export default function LibraryScreen() {
   const [detailBook, setDetailBook] = useState<BookWithEntry | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
-  const openSwipeableRef = useRef<Swipeable | null>(null);
   const letterPositions = useRef<Map<string, number>>(new Map());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -482,12 +480,6 @@ export default function LibraryScreen() {
     if (book) setDetailBook(book);
   }, [bookMap]);
 
-  const closeOpenSwipeable = useCallback(() => { openSwipeableRef.current?.close(); openSwipeableRef.current = null; }, []);
-  const handleSwipeableWillOpen = useCallback((ref: Swipeable) => {
-    if (openSwipeableRef.current && openSwipeableRef.current !== ref) openSwipeableRef.current.close();
-    openSwipeableRef.current = ref;
-  }, []);
-
   const handleSheetStartReading = useCallback(async (bookId: number) => { await startReading(bookId); }, [startReading]);
   const handleSheetFinish = useCallback(async (bookId: number) => { await finishReading(bookId); }, [finishReading]);
   const handleSheetDNF = useCallback(async (bookId: number) => { await markDNF(bookId); }, [markDNF]);
@@ -508,15 +500,17 @@ export default function LibraryScreen() {
     letterPositions.current.set(letter, event.nativeEvent.layout.y);
   }, []);
 
-  const renderCompactRows = useCallback((list: BookWithEntry[]) =>
-    list.map((book) => (
-      <CompactBookRow key={book.id} book={book} progress={progressMap.get(book.id)}
-        onPress={() => openDetail(book.id)} onLongPress={() => openDetail(book.id)}
-        onStartReading={() => startReading(book.id)} onMarkFinished={() => finishReading(book.id)}
-        onMarkDNF={() => markDNF(book.id)} onSwipeableWillOpen={handleSwipeableWillOpen} />
-    )),
-    [progressMap, openDetail, startReading, finishReading, markDNF, handleSwipeableWillOpen]
-  );
+  const renderCoverGrid = useCallback((list: BookWithEntry[]) => (
+    <CoverGrid
+      data={list.map((b) => ({
+        id: b.id, title: b.title, authors: b.authors,
+        cover_url: b.cover_url, status: b.entry.status,
+      }))}
+      progressMap={progressMap}
+      onPress={openDetail}
+      onLongPress={openDetail}
+    />
+  ), [progressMap, openDetail]);
 
   const showAlphabetView = activeTab !== "all" && !isControlsActive;
 
@@ -525,7 +519,6 @@ export default function LibraryScreen() {
       <ScrollView
         ref={scrollRef} style={s.scroller}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={t.color.accent.light} />}
-        onScrollBeginDrag={closeOpenSwipeable}
       >
         {/* ── Header ─────────────────────────────────── */}
         <View style={s.header}>
@@ -637,7 +630,7 @@ export default function LibraryScreen() {
 
         {isControlsActive ? (
           <View style={s.flatSection}>
-            {filteredSorted.length > 0 ? renderCompactRows(filteredSorted) : (
+            {filteredSorted.length > 0 ? renderCoverGrid(filteredSorted) : (
               <View style={s.noResults}>
                 <IconSymbol name="tray" size={40} color={t.color.text.faint} style={{ marginBottom: t.space._2 }} />
                 <Text style={s.noResultsText}>No books match your criteria</Text>
@@ -665,7 +658,7 @@ export default function LibraryScreen() {
                 <CollapsibleSection key={`f-${folder.id}`} title={folder.name} count={fBooks.length}
                   accentColor={folder.color} defaultExpanded={false}
                   rightAction={<Pressable style={s.deleteBtn} onPress={() => handleDeleteFolder(folder)} hitSlop={8}><Text style={s.deleteText}>✕</Text></Pressable>}>
-                  {fBooks.length > 0 ? renderCompactRows(fBooks) : <EmptySection onAdd={goToSearch} />}
+                  {fBooks.length > 0 ? renderCoverGrid(fBooks) : <EmptySection onAdd={goToSearch} />}
                 </CollapsibleSection>
               );
             })}
@@ -675,7 +668,7 @@ export default function LibraryScreen() {
           </>
         ) : activeTab === "all" && activeSmartCollection ? (
           <View style={s.flatSection}>
-            {filteredSorted.length > 0 ? renderCompactRows(filteredSorted) : (
+            {filteredSorted.length > 0 ? renderCoverGrid(filteredSorted) : (
               <View style={s.noResults}>
                 <IconSymbol name="tray" size={40} color={t.color.text.faint} style={{ marginBottom: t.space._2 }} />
                 <Text style={s.noResultsText}>No books in this collection</Text>
@@ -693,7 +686,7 @@ export default function LibraryScreen() {
                     <Text style={s.letterText}>{group.letter}</Text>
                     <View style={s.letterLine} />
                   </View>
-                  {renderCompactRows(group.books)}
+                  {renderCoverGrid(group.books)}
                 </View>
               ))
             )}
