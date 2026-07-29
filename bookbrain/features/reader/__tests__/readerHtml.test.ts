@@ -62,6 +62,12 @@ describe("buildReaderHtml — self-contained document", () => {
     expect(html).toContain("rendition.display");
   });
 
+  it("exposes a caret API to pick the RSVP start word", () => {
+    expect(html).toContain("caretAt:");           // reader API entry
+    expect(html).toContain("caretRangeFromPoint"); // hit-test the tapped word
+    expect(html).toContain("bb-caret");            // the caret element
+  });
+
   it("flattens nested TOC chapters, not just top-level parts", () => {
     // Many epubs nest chapters under parts ("books within the book"); the TOC
     // builder must recurse into subitems or those chapters are lost. Anchored

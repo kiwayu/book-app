@@ -10,6 +10,11 @@ export interface ReaderSettings {
   fontSize:    number;   // px  13–26
   lineHeight:  number;   // multiplier  1.3–2.0
   marginWidth: number;   // px  8–56
+  /* Exact palette (e.g. an app theme like Catppuccin). When set, the book
+     renders these colours directly instead of the classic filter theme. */
+  bg?:         string | null;
+  fg?:         string | null;
+  link?:       string | null;
 }
 
 export const DEFAULT_SETTINGS: ReaderSettings = {
@@ -130,8 +135,22 @@ function chapterOf(href){
 /* THEME: applied entirely on the outer #viewer via a CSS filter (see above).
    This is the guaranteed path — no iframe access. */
 function applyTheme(){
-  var cfg=THEME_VIEW[s.theme]||THEME_VIEW.light;
   var v=document.getElementById("viewer");
+  var loadEl=document.getElementById("loading");
+  if(s.bg&&s.fg){
+    // Exact palette (app theme): colour the content directly (via contentCss on
+    // the content hook), no filter — so images look normal and colours are true.
+    if(v){
+      v.style.padding="0 "+s.marginWidth+"px";
+      v.style.filter="none";v.style.webkitFilter="none";
+      v.style.background=s.bg;
+    }
+    document.body.style.background=s.bg;
+    if(loadEl)loadEl.style.background=s.bg;
+    repaintContents();
+    return;
+  }
+  var cfg=THEME_VIEW[s.theme]||THEME_VIEW.light;
   if(v){
     v.style.padding="0 "+s.marginWidth+"px";
     v.style.filter=cfg.filter;
@@ -139,7 +158,6 @@ function applyTheme(){
     v.style.background=cfg.pageBg;   // white under invert → dark page
   }
   document.body.style.background=cfg.edgeBg;      // margins (not inverted)
-  var loadEl=document.getElementById("loading");
   if(loadEl)loadEl.style.background=cfg.edgeBg;
 }
 
@@ -147,12 +165,20 @@ function applyTheme(){
    No colours here: the filter owns colour, so this never fights it. */
 function contentCss(){
   var ff=(FONTS[s.font]||FONTS.georgia);
-  return "html,body{font-family:"+ff+" !important;line-height:"+s.lineHeight+" !important;"
+  var css="html,body{font-family:"+ff+" !important;line-height:"+s.lineHeight+" !important;"
     +"font-size:"+s.fontSize+"px !important;}"
     +"body *{font-family:"+ff+" !important;line-height:"+s.lineHeight+" !important;}"
     +"p{margin-bottom:.75em;}"
     +"h1,h2,h3,h4,h5,h6{margin:1em 0 .5em;}"
     +"img,svg{max-width:100% !important;height:auto !important;}";
+  if(s.bg&&s.fg){
+    // exact palette: paint colours here (the filter path leaves colours alone)
+    var link=s.link||s.fg;
+    css+="html,body{background:"+s.bg+" !important;color:"+s.fg+" !important;}"
+      +"body *{color:"+s.fg+" !important;}"
+      +"a,a *{color:"+link+" !important;}";
+  }
+  return css;
 }
 function paintContents(contents){
   try{if(contents&&contents.addStylesheetCss)contents.addStylesheetCss(contentCss(), "bb-type");}catch(e){}
@@ -336,6 +362,71 @@ function getChapterText(){
   }catch(e){post("chapterText",{paragraphs:[],chapter:""});}
 }
 
+/* ── caret (pick RSVP start word) ──────────────────────
+   Draw a blinking caret at a tapped word and report its word index in the
+   current chapter, so speed reading can start exactly there. Runs against the
+   current section document (same handle epub.js styles); wrapped so a
+   cross-origin failure just disables the caret. */
+function caretDoc(){
+  try{
+    var cs=rendition.getContents();
+    if(cs&&cs.document)cs=[cs];
+    if(cs&&cs.length&&cs[0])return cs[0].document;
+  }catch(e){}
+  return null;
+}
+function bbCaretEl(doc){
+  var el=doc.getElementById("bb-caret");
+  if(!el){
+    el=doc.createElement("div");
+    el.id="bb-caret";
+    el.style.cssText="position:absolute;width:2px;background:currentColor;opacity:.85;z-index:99999;pointer-events:none;border-radius:1px;";
+    var st=doc.createElement("style");
+    st.textContent="#bb-caret{animation:bbcaretblink 1s step-end infinite}@keyframes bbcaretblink{50%{opacity:0}}";
+    (doc.head||doc.body).appendChild(st);
+    doc.body.appendChild(el);
+  }
+  return el;
+}
+function caretRange(doc,x,y){
+  if(doc.caretRangeFromPoint)return doc.caretRangeFromPoint(x,y);
+  if(doc.caretPositionFromPoint){
+    var p=doc.caretPositionFromPoint(x,y);
+    if(p){var r=doc.createRange();r.setStart(p.offsetNode,p.offset);r.collapse(true);return r;}
+  }
+  return null;
+}
+/* Count whitespace words before (node,offset) in reading order — matches the
+   RSVP tokeniser closely enough to land on the tapped word. */
+function wordIndexBefore(root,node,offset){
+  var count=0,done=false;
+  (function walk(n){
+    if(done||!n)return;
+    if(n.nodeType===3){
+      var txt=(n===node)?String(n.nodeValue).slice(0,offset):String(n.nodeValue||"");
+      var m=txt.match(/\\S+/g);if(m)count+=m.length;
+      if(n===node)done=true;
+      return;
+    }
+    for(var i=0;i<n.childNodes.length&&!done;i++)walk(n.childNodes[i]);
+  })(root);
+  return count;
+}
+function placeCaret(doc,x,y){
+  var rng=caretRange(doc,x,y);
+  if(!rng||!rng.startContainer)return -1;
+  try{
+    var rect=rng.getBoundingClientRect();
+    var win=doc.defaultView||{};
+    var el=bbCaretEl(doc);
+    el.style.left=(rect.left+(win.scrollX||0))+"px";
+    el.style.top=(rect.top+(win.scrollY||0))+"px";
+    el.style.height=((rect.height||18))+"px";
+    el.style.display="block";
+  }catch(e){}
+  return wordIndexBefore(doc.body,rng.startContainer,rng.startOffset||0);
+}
+
 /* ── public API ───────────────────────────────────── */
 window.readerApi={
   nextPage:       function(){if(rendition)rendition.next();},
@@ -345,6 +436,33 @@ window.readerApi={
   goToPercentage: function(p){if(rendition&&book&&book.locations){var c=book.locations.cfiFromPercentage(Math.max(0,Math.min(1,p)));if(c)rendition.display(c);}},
   applySettings:  applySettings,
   getChapterText: getChapterText,
+  /* Place the caret at a WebView-relative point; posts the word index. */
+  caretAt:        function(mx,my){
+    try{
+      var doc=caretDoc();if(!doc)return;
+      var ifr=document.querySelector("#viewer iframe");if(!ifr)return;
+      var rect=ifr.getBoundingClientRect();
+      var idx=placeCaret(doc,mx-rect.left,my-rect.top);
+      if(idx>=0)post("caret",{wordIndex:idx});
+    }catch(e){}
+  },
+  caretHide:      function(){
+    try{var doc=caretDoc();if(!doc)return;var el=doc.getElementById("bb-caret");if(el)el.style.display="none";}catch(e){}
+  },
+  /* Post the epub's own metadata (author etc.) so the library can fill blanks. */
+  extractMeta:    function(){
+    try{
+      book.loaded.metadata.then(function(m){
+        post("meta",{
+          title:(m&&m.title)||"",
+          creator:(m&&m.creator)||"",
+          publisher:(m&&m.publisher)||"",
+          pubdate:(m&&(m.pubdate||m.date))||"",
+          language:(m&&m.language)||""
+        });
+      }).catch(function(){post("meta",{});});
+    }catch(e){post("meta",{});}
+  },
   /* Resolve the epub's cover to a base64 data URL and post it back. epub.js
      parses the OPF + inflates the image from the zip archive for us. */
   extractCover:   function(){

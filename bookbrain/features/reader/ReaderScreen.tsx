@@ -47,11 +47,13 @@ import {
 } from "@/services/highlights";
 import {
   toggleBookmark,
+  addBookmark,
   getBookmarksForBook,
   type Bookmark,
 } from "@/services/bookmarks";
 import { writeReaderHtmlFile, readAccessRoot } from "@/services/localEpub";
 import { hasCover, saveCover } from "@/services/epubCover";
+import { applyEpubMeta } from "@/services/epubMeta";
 import { useLibraryStore } from "@/store/libraryStore";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { t, getThemeId, isThemeDark } from "@/theme";
@@ -163,6 +165,11 @@ export default function ReaderScreen({
   const latestPageRef   = useRef<number>(0);
   const htmlRef         = useRef<string | null>(null);
   const coverTriedRef   = useRef(false);
+  const rsvpMarkerRef   = useRef(false); // next currentCfi drops a speed-read marker
+  const caretStartIdxRef = useRef(0);    // word index chosen via the on-page caret
+  const caretTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const caretActiveRef  = useRef(false);
+  const caretGrantRef   = useRef<{ x: number; y: number } | null>(null);
 
   const [htmlReady,     setHtmlReady]     = useState(false);
   /* file:// URI of the written reader HTML when the book is a local file
@@ -223,15 +230,19 @@ export default function ReaderScreen({
         setCurrentPage(savedPage);
         setPercentage(savedPct);
       }
-      // Reader theme: follow the app theme, or use the chosen reading theme.
+      // Reader theme: follow the app theme (exact palette), or a chosen theme.
       const matchApp = await getSetting("readerMatchApp");
       const epubTheme: ReaderTheme = matchApp
         ? (isThemeDark(getThemeId()) ? "dark" : "light")
         : await getSetting("readerTheme");
-      if (!cancelled) setSettings((prev) => ({ ...prev, theme: epubTheme }));
+      const palette = matchApp
+        ? { bg: t.color.bg.base, fg: t.color.text.primary, link: t.color.accent.base }
+        : { bg: null, fg: null, link: null };
+      if (!cancelled) setSettings((prev) => ({ ...prev, theme: epubTheme, ...palette }));
       const html = buildReaderHtml(epubUrl, savedCfi, {
         ...DEFAULT_SETTINGS,
         theme: epubTheme,
+        ...palette,
       });
       htmlRef.current = html;
       /* Local files load via a file:// HTML document (same documentDirectory
@@ -276,6 +287,7 @@ export default function ReaderScreen({
       finishSession();
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      if (caretTimerRef.current) clearTimeout(caretTimerRef.current);
     };
   }, [bookId, finishSession]);
 
@@ -345,9 +357,11 @@ export default function ReaderScreen({
     (patch: Partial<ReaderSettings>) => {
       setSettings((prev) => {
         const next = { ...prev, ...patch };
-        // Theme applies as a CSS filter on the outer #viewer element (main
-        // document — always reachable from injected JS), so a plain inject is
-        // instant and reliable. No book reload needed.
+        // Picking a classic reader theme in-book clears the app-palette colours
+        // so the classic (filter) theme takes over.
+        if (patch.theme !== undefined && patch.bg === undefined) {
+          next.bg = null; next.fg = null; next.link = null;
+        }
         const json = JSON.stringify(JSON.stringify(next));
         inject(`window.readerApi.applySettings(${json})`);
         return next;
@@ -437,13 +451,18 @@ export default function ReaderScreen({
   const closeRsvp = useCallback(
     (lastIndex: number) => {
       setShowRsvp(false);
+      // Drop a marker on the page where speed reading stopped.
+      if (rsvpTokens.length > 0) {
+        rsvpMarkerRef.current = true;
+        inject("window.readerApi.getCurrentCfi()");
+      }
       setRsvpTokens([]);
       // Persist resume pointer (clamped to a real word) and remember the speed.
       setRsvpWordIndex(bookId, rsvpTokens.length > 0 ? lastIndex : null);
       savePrefs({ rsvpWpm });
       showAndReset();
     },
-    [bookId, rsvpTokens.length, rsvpWpm, showAndReset]
+    [bookId, rsvpTokens.length, rsvpWpm, showAndReset, inject]
   );
 
   /* ── Session summary on close ──────────────────── */
@@ -471,12 +490,19 @@ export default function ReaderScreen({
         const msg = JSON.parse(event.nativeEvent.data);
         switch (msg.type) {
           case "ready":
-            // Grab the cover once per open, only if the book has none yet.
+            // Enrich the library once per open: fill missing author/metadata
+            // and grab the cover if the book has none yet.
             if (!coverTriedRef.current) {
               coverTriedRef.current = true;
+              inject("window.readerApi.extractMeta()");
               if (!(await hasCover(bookId))) {
                 inject("window.readerApi.extractCover()");
               }
+            }
+            break;
+          case "meta":
+            if (await applyEpubMeta(bookId, msg)) {
+              await useLibraryStore.getState().loadLibrary();
             }
             break;
           case "cover":
@@ -486,6 +512,10 @@ export default function ReaderScreen({
             break;
           case "tap":
             showAndReset();
+            break;
+          case "caret":
+            caretStartIdxRef.current =
+              typeof msg.wordIndex === "number" ? msg.wordIndex : 0;
             break;
           case "tocLoaded":
             setToc(msg.toc ?? []);
@@ -513,7 +543,12 @@ export default function ReaderScreen({
           case "currentCfi": {
             const cfi = msg.cfi;
             if (cfi) {
-              await toggleBookmark(bookId, cfi, currentPage || undefined);
+              if (rsvpMarkerRef.current) {
+                rsvpMarkerRef.current = false;
+                await addBookmark(bookId, cfi, "⚡ Speed reading", currentPage || undefined);
+              } else {
+                await toggleBookmark(bookId, cfi, currentPage || undefined);
+              }
               const updated = await getBookmarksForBook(bookId);
               setBookmarks(updated);
             }
@@ -526,6 +561,14 @@ export default function ReaderScreen({
             const tokens = tokenizeParagraphs(paragraphs);
             setRsvpTokens(tokens);
             setRsvpChapter(msg.chapter || chapter || "");
+            // If a caret start word was chosen, begin there (no resume prompt).
+            const caretStart = caretStartIdxRef.current;
+            if (caretStart > 0 && tokens.length > 0) {
+              caretStartIdxRef.current = 0;
+              rsvpStartIdxRef.current = Math.min(caretStart, tokens.length - 1);
+              setShowRsvp(true);
+              break;
+            }
             // Resume only if the saved index still lands inside this chapter.
             const saved = rsvpStartIdxRef.current;
             const canResume = saved > 0 && saved < tokens.length;
@@ -616,15 +659,47 @@ export default function ReaderScreen({
           ponytail: overlay intercepts touches, so in-book long-press text
           selection is superseded; add a toolbar "highlight" affordance if
           selection is wanted back. */}
+      {/* Long-press + drag places a caret to pick the speed-reading start word;
+          a plain tap keeps the zone navigation (left/right/menu). */}
       {htmlReady && !showRsvp && (
-        <Pressable
+        <View
           style={StyleSheet.absoluteFill}
-          onPress={(e) => {
+          onStartShouldSetResponder={() => true}
+          onMoveShouldSetResponder={() => true}
+          onResponderGrant={(e) => {
+            const { locationX, locationY } = e.nativeEvent;
+            caretGrantRef.current = { x: locationX, y: locationY };
+            caretActiveRef.current = false;
+            if (caretTimerRef.current) clearTimeout(caretTimerRef.current);
+            caretTimerRef.current = setTimeout(() => {
+              caretActiveRef.current = true;
+              inject(`window.readerApi.caretAt(${locationX}, ${locationY - insets.top})`);
+            }, 400);
+          }}
+          onResponderMove={(e) => {
+            const { locationX, locationY } = e.nativeEvent;
+            if (caretActiveRef.current) {
+              inject(`window.readerApi.caretAt(${locationX}, ${locationY - insets.top})`);
+            } else if (caretGrantRef.current) {
+              const dx = Math.abs(locationX - caretGrantRef.current.x);
+              const dy = Math.abs(locationY - caretGrantRef.current.y);
+              if ((dx > 10 || dy > 10) && caretTimerRef.current) {
+                clearTimeout(caretTimerRef.current); // moved first → not a long-press
+              }
+            }
+          }}
+          onResponderRelease={(e) => {
+            if (caretTimerRef.current) clearTimeout(caretTimerRef.current);
+            if (caretActiveRef.current) { caretActiveRef.current = false; return; }
             const zone = tapZone(e.nativeEvent.locationX, winWidth);
             if (zone === "prev") prevPage();
             else if (zone === "next") nextPage();
             else if (showControls) setShowControls(false);
             else showAndReset();
+          }}
+          onResponderTerminate={() => {
+            if (caretTimerRef.current) clearTimeout(caretTimerRef.current);
+            caretActiveRef.current = false;
           }}
         />
       )}
@@ -1085,12 +1160,12 @@ export default function ReaderScreen({
           startIndex={rsvpStartIdxRef.current}
           chapter={rsvpChapter}
           colors={{
-            bg:     THEME_BG[theme],
-            fg:     fg,
-            sub:    sub,
-            accent: accent,
-            barBg:  barBg,
-            border: barBorder,
+            bg:     t.color.bg.base,
+            fg:     t.color.text.primary,
+            sub:    t.color.text.tertiary,
+            accent: t.color.accent.base,
+            barBg:  t.color.bg.raised,
+            border: t.color.border.default,
           }}
           onWpmChange={setRsvpWpm}
           onClose={closeRsvp}

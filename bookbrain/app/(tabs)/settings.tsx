@@ -855,12 +855,12 @@ const s = StyleSheet.create({
   themeGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
+    justifyContent: "space-between",
     padding: t.space._3,
-    gap: t.space._3,
+    rowGap: t.space._3,
   },
   themeCard: {
-    width: "30%",
-    flexGrow: 1,
+    width: "31%",
     borderRadius: t.radius.xl,
     borderWidth: 1.5,
     borderColor: "transparent",
