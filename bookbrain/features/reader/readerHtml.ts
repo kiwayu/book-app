@@ -78,6 +78,17 @@ var THEMES={
   dark: {bg:"#1c1c1c",fg:"#d4d4d4",link:"#88BDF2"},
   night:{bg:"#000000",fg:"#a0a0a0",link:"#6A89A7"}
 };
+/* Theme is applied as a CSS *filter* on the outer #viewer element (which we
+   fully control). A filter is a paint effect the browser composites over
+   everything inside #viewer — INCLUDING the cross-origin book iframe — so it
+   works where touching the iframe DOM is blocked. Dark = invert the viewer;
+   under invert a white page becomes dark and black text becomes light. */
+var THEME_VIEW={
+  light:{filter:"none",             pageBg:"#fafafa", edgeBg:"#fafafa"},
+  sepia:{filter:"sepia(0.55) brightness(1.02) contrast(0.96)", pageBg:"#f4ecd8", edgeBg:"#f4ecd8"},
+  dark: {filter:"invert(1) hue-rotate(180deg)",               pageBg:"#ffffff", edgeBg:"#1c1c1c"},
+  night:{filter:"invert(1) hue-rotate(180deg) brightness(0.82)", pageBg:"#ffffff", edgeBg:"#000000"}
+};
 var FONTS={
   georgia: "Georgia,'Times New Roman',serif",
   palatino:"'Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif",
@@ -88,11 +99,6 @@ var s=${settingsArg};
 var currentCfi=${cfiArg};
 var totalPages=0;
 var book=null,rendition=null;
-/* Book iframe documents captured from the "rendered" event — the ONLY reliably
-   accessible handle (tap-wiring uses it and works). External
-   iframe.contentDocument queries are often null (cross-origin blob), which is
-   why live theme changes appeared to do nothing. */
-var renderedDocs=[];
 
 /* ── messaging ────────────────────────────────────── */
 function post(type,data){
@@ -121,77 +127,43 @@ function chapterOf(href){
   return"";
 }
 
-/* ── theme plumbing ───────────────────────────────────
-   epub.js's themes API proved unreliable for live changes: themes.select()
-   no-ops once _current is set, so colors never re-applied. Instead we own a
-   <style id="bb-theme"> element inside each book iframe (queried from the
-   #viewer container we control) and rewrite it on every change — colors and
-   fonts apply instantly. Layout metrics (font-size/family/line/margin) also
-   need epub.js to re-columnise, so we resize()+display() after those change;
-   that re-render re-reads the styled DOM, so nothing clips. */
-function themeCss(){
-  var th=THEMES[s.theme]||THEMES.light, ff=(FONTS[s.font]||FONTS.georgia);
-  return "html,body{background:"+th.bg+" !important;color:"+th.fg+" !important;"
-    +"font-family:"+ff+" !important;line-height:"+s.lineHeight+" !important;"
+/* THEME: applied entirely on the outer #viewer via a CSS filter (see above).
+   This is the guaranteed path — no iframe access. */
+function applyTheme(){
+  var cfg=THEME_VIEW[s.theme]||THEME_VIEW.light;
+  var v=document.getElementById("viewer");
+  if(v){
+    v.style.padding="0 "+s.marginWidth+"px";
+    v.style.filter=cfg.filter;
+    v.style.webkitFilter=cfg.filter;
+    v.style.background=cfg.pageBg;   // white under invert → dark page
+  }
+  document.body.style.background=cfg.edgeBg;      // margins (not inverted)
+  var loadEl=document.getElementById("loading");
+  if(loadEl)loadEl.style.background=cfg.edgeBg;
+}
+
+/* TYPOGRAPHY (font/size/spacing) — best effort via epub.js's own Contents API.
+   No colours here: the filter owns colour, so this never fights it. */
+function contentCss(){
+  var ff=(FONTS[s.font]||FONTS.georgia);
+  return "html,body{font-family:"+ff+" !important;line-height:"+s.lineHeight+" !important;"
     +"font-size:"+s.fontSize+"px !important;}"
-    +"body *{color:"+th.fg+" !important;font-family:"+ff+" !important;"
-    +"line-height:"+s.lineHeight+" !important;}"
-    +"a,a *{color:"+th.link+" !important;}"
+    +"body *{font-family:"+ff+" !important;line-height:"+s.lineHeight+" !important;}"
     +"p{margin-bottom:.75em;}"
     +"h1,h2,h3,h4,h5,h6{margin:1em 0 .5em;}"
     +"img,svg{max-width:100% !important;height:auto !important;}";
 }
-/* Prefer the docs epub.js handed us on "rendered" (accessible); union with the
-   DOM query as a bonus in case a version exposes contentDocument too. */
-function bookDocs(){
-  var out=[],seen=[],i,d;
-  for(i=0;i<renderedDocs.length;i++){
-    d=renderedDocs[i];
-    if(d&&d.head&&d.defaultView&&seen.indexOf(d)<0){seen.push(d);out.push(d);}
-  }
-  var ifr=document.querySelectorAll("#viewer iframe");
-  for(i=0;i<ifr.length;i++){
-    d=ifr[i].contentDocument||(ifr[i].contentWindow&&ifr[i].contentWindow.document);
-    if(d&&d.head&&seen.indexOf(d)<0){seen.push(d);out.push(d);}
-  }
-  return out;
+function paintContents(contents){
+  try{if(contents&&contents.addStylesheetCss)contents.addStylesheetCss(contentCss(), "bb-type");}catch(e){}
 }
-function styleDoc(doc){
-  if(!doc||!doc.head)return;
-  var el=doc.getElementById("bb-theme");
-  if(!el){el=doc.createElement("style");el.id="bb-theme";doc.head.appendChild(el);}
-  var css=themeCss();
-  if(el.textContent!==css)el.textContent=css;
-}
-function paintBook(){
-  var docs=bookDocs();
-  for(var i=0;i<docs.length;i++)styleDoc(docs[i]);
-}
-function applyTheme(){
-  var th=THEMES[s.theme]||THEMES.light, ff=(FONTS[s.font]||FONTS.georgia);
-  document.body.style.background=th.bg;
-  var loadEl=document.getElementById("loading");
-  if(loadEl)loadEl.style.background=th.bg;
-  var v=document.getElementById("viewer");
-  if(v)v.style.padding="0 "+s.marginWidth+"px";
-  /* Register the theme with epub.js so it is applied during the layout pass on
-     (re)render — this is the reliable path; the book is re-opened with new
-     settings, so this runs at load every time settings change. */
-  if(rendition&&rendition.themes){
-    try{
-      rendition.themes.default({
-        "html, body":{
-          "background":th.bg+" !important","color":th.fg+" !important",
-          "font-family":ff+" !important","line-height":String(s.lineHeight)+" !important",
-          "font-size":s.fontSize+"px !important"
-        },
-        "body *":{"color":th.fg+" !important","font-family":ff+" !important"},
-        "a, a *":{"color":th.link+" !important"},
-        "img, svg":{"max-width":"100% !important","height":"auto !important"}
-      });
-    }catch(e){}
-  }
-  paintBook();
+function repaintContents(){
+  if(!rendition||!rendition.getContents)return;
+  try{
+    var cs=rendition.getContents();
+    if(cs&&cs.document)cs=[cs];
+    if(cs&&cs.length)for(var i=0;i<cs.length;i++)paintContents(cs[i]);
+  }catch(e){}
 }
 
 /* ── apply settings ───────────────────────────────── */
@@ -201,14 +173,14 @@ function applySettings(json){
   var prevLayout=s.font+"_"+s.fontSize+"_"+s.lineHeight+"_"+s.marginWidth;
   Object.assign(s,incoming);
   var newLayout=s.font+"_"+s.fontSize+"_"+s.lineHeight+"_"+s.marginWidth;
-  applyTheme();                    // instant colours + fonts
+  applyTheme();                    // theme (colour) — instant, guaranteed
+  repaintContents();               // typography — best effort
   if(newLayout!==prevLayout&&rendition){
     try{
       var v=document.getElementById("viewer");
       rendition.resize(v.clientWidth-2*s.marginWidth,v.clientHeight);
     }catch(e){}
-    // re-render re-reads our injected styles → correct pagination, no clip
-    if(currentCfi)rendition.display(currentCfi).then(paintBook).catch(function(){});
+    if(currentCfi)rendition.display(currentCfi).then(repaintContents).catch(function(){});
   }
 }
 
@@ -219,6 +191,13 @@ try{
     width:"100%",height:"100%",
     spread:"none",flow:"paginated"
   });
+
+  /* Style every section as epub.js renders it — runs inside epub.js so it can
+     reach the content. This is what makes the theme (incl. default) actually
+     apply to the book text. */
+  if(rendition.hooks&&rendition.hooks.content){
+    rendition.hooks.content.register(function(contents){paintContents(contents);});
+  }
 
   applyTheme();
 
@@ -299,15 +278,7 @@ try{
     });
   }
   rendition.on("rendered",function(section,view){
-    var doc=(view&&view.document)||(view&&view.iframe&&view.iframe.contentDocument);
-    if(doc&&renderedDocs.indexOf(doc)<0)renderedDocs.push(doc);
-    wireInput(doc);
-    styleDoc(doc);   // colour/font a fresh page the moment it renders
-  });
-  rendition.on("removed",function(section,view){
-    var doc=(view&&view.document)||(view&&view.iframe&&view.iframe.contentDocument);
-    var idx=renderedDocs.indexOf(doc);
-    if(idx>=0)renderedDocs.splice(idx,1);
+    wireInput((view&&view.document)||(view&&view.iframe&&view.iframe.contentDocument));
   });
 
 }catch(err){showError("Failed to load book: "+(err&&err.message||"unknown error"));}

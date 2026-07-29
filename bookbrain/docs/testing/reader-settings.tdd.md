@@ -2,34 +2,37 @@
 
 **Task:** Themes (dark mode etc.) and reading settings weren't applying live. Overhaul so they work.
 
-## Root cause (final)
+## Root cause (final, API-verified)
 
-Theme/settings changes are pushed into the reader WebView via
-`window.readerApi.applySettings(json)`. Two earlier attempts failed:
-`themes.select("bb")` (no-ops once `_current === "bb"`), then injecting a
-`<style>` via `document.querySelectorAll("#viewer iframe").contentDocument` —
-which returns **null/inaccessible** after render (cross-origin blob iframe), so
-nothing was ever styled and dark mode did nothing.
+The reader lives in a WebView; the book text renders inside epub.js **section
+iframes**. Those iframes are cross-origin blobs, so **any code in our own page
+that tries to touch `iframe.contentDocument` is blocked** — silently. Every
+earlier attempt did exactly that (epub theme `select`, `#viewer iframe` query,
+`rendered`-event doc refs), so nothing was ever styled and even the default
+theme never applied to the book text.
 
-The **only reliably accessible** book-document handle is the one epub.js passes
-on the `rendered` event — proven because tap-navigation (`wireInput`) binds to
-that same doc and works. So we capture those docs and style them.
+Ground truth: grepping the vendored epub.js confirmed it exposes
+`addStylesheetCss`, `hooks.content`, and `getContents`. `Contents.addStylesheetCss`
+runs **inside epub.js**, which holds same-origin access to the section it
+created — the one place that CAN style the content.
 
 ## Fix
 
-Own a `<style id="bb-theme">` element inside each book document, using the doc
-refs captured from the `rendered` event (`renderedDocs`), and rewrite it on
-every change:
+Register an epub.js **content hook** that styles every section as it renders,
+via `contents.addStylesheetCss(themeCss(), "bb-theme")`, plus `repaintContents()`
+(over `rendition.getContents()`) for already-rendered sections. Settings changes
+re-open the book (WebView remount at the saved CFI) so the hook re-runs with the
+new settings baked in — guaranteed to apply:
 
 - `themeCss()` — full CSS: `html,body` + `body *` colour/font/line-height/size,
   link colour, block spacing. `body *` forces books that hard-code element
   colours to flip.
-- `bookDocs()` / `styleDoc()` / `paintBook()` — inject/update the style in every
-  rendered iframe.
-- `rendered` event styles each fresh page as it appears (paging keeps the theme).
-- `applySettings()` repaints instantly; on a layout-affecting change
-  (font/size/line/margin) it also `resize()` + `display(cfi)` so epub.js
-  re-columnises against the styled DOM (no text clipping).
+- `paintContents(contents)` — `contents.addStylesheetCss(themeCss(), "bb-theme")`.
+- `rendition.hooks.content.register(...)` — runs `paintContents` for every
+  section as epub.js renders it (initial load + paging).
+- `repaintContents()` — re-applies over `rendition.getContents()` for live change.
+- Settings change → `ReaderScreen` re-opens the book at the saved CFI so the
+  content hook re-runs with the new settings baked in.
 
 ## User journeys
 
@@ -42,12 +45,12 @@ every change:
 
 | # | Guarantee | Test | Type | Result |
 |---|-----------|------|------|--------|
-| 1 | Reader drives the iframes directly (`#viewer iframe` + `bb-theme` style), not epub theme select | `readerHtml.test.ts › injects theme styles straight into the book iframes` | unit | PASS |
+| 1 | Book content styled via `addStylesheetCss(themeCss(), "bb-theme")` (epub.js content hook) | `readerHtml.test.ts › styles book content via epub.js content hook + addStylesheetCss` | unit | PASS |
 | 2 | Layout-affecting changes re-paginate via resize + display | `readerHtml.test.ts › re-paginates via resize + display` | unit | PASS |
-| 3 | Existing reader HTML contract intact (margins, no injectIntoView, RSVP, tap zones) | `features/reader` suite (53 tests) | unit | PASS |
+| 3 | Existing reader HTML contract intact (margins, RSVP, tap zones, flattened TOC) | `features/reader` suite (54 tests) | unit | PASS |
 
-RED: `querySelectorAll("#viewer iframe")` absent → test 1 failed as intended.
-GREEN: after implementing direct injection → `npx jest features/reader` → 53/53 pass; `npx tsc --noEmit` clean.
+RED: `addStylesheetCss(themeCss(), "bb-theme")` absent → test 1 failed as intended.
+GREEN: after adding the content hook → `npx jest features/reader` → 54/54 pass; full suite 122/122; `npx tsc --noEmit` clean.
 
 ## Known gap
 

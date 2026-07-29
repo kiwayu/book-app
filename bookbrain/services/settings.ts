@@ -12,6 +12,7 @@ export interface AppSettings {
   readerFont: string;
   readerFontSize: number;
   readerTheme: "light" | "sepia" | "dark" | "night";
+  readerMatchApp: boolean; // reader follows the app theme (else use readerTheme)
   readerLineHeight: number;
   readerMargin: number;
 
@@ -34,6 +35,7 @@ const DEFAULTS: AppSettings = {
   readerFont: "Georgia",
   readerFontSize: 17,
   readerTheme: "light",
+  readerMatchApp: true,
   readerLineHeight: 1.6,
   readerMargin: 24,
   yearlyBookGoal: 0,

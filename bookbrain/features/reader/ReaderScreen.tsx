@@ -34,6 +34,7 @@ import {
   setRsvpWordIndex,
 } from "@/services/readingTracker";
 import { loadPrefs, savePrefs } from "@/services/preferences";
+import { getSetting } from "@/services/settings";
 import RsvpOverlay from "./rsvp/RsvpOverlay";
 import { tokenizeParagraphs, type Token } from "./rsvp/engine";
 import { tapZone } from "./tapZones";
@@ -53,7 +54,7 @@ import { writeReaderHtmlFile, readAccessRoot } from "@/services/localEpub";
 import { hasCover, saveCover } from "@/services/epubCover";
 import { useLibraryStore } from "@/store/libraryStore";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { t } from "@/theme";
+import { t, getThemeId, isThemeDark } from "@/theme";
 
 /* ── Types ──────────────────────────────────────────── */
 
@@ -162,14 +163,15 @@ export default function ReaderScreen({
   const latestPageRef   = useRef<number>(0);
   const htmlRef         = useRef<string | null>(null);
   const coverTriedRef   = useRef(false);
-  const latestCfiRef    = useRef<string | null>(null);
-  const rebuildTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [htmlReady,     setHtmlReady]     = useState(false);
   /* file:// URI of the written reader HTML when the book is a local file
      (iOS WKWebView cannot XHR file:// from an HTML-string origin — Spike #0) */
   const [sourceUri,     setSourceUri]     = useState<string | null>(null);
-  const [settings,      setSettings]      = useState<ReaderSettings>(DEFAULT_SETTINGS);
+  // Reader opens in a theme matching the app mode (dark app → dark pages).
+  const [settings,      setSettings]      = useState<ReaderSettings>(
+    () => ({ ...DEFAULT_SETTINGS, theme: isThemeDark(getThemeId()) ? "dark" : "light" })
+  );
   const [showControls,  setShowControls]  = useState(false);
   const [showSettings,  setShowSettings]  = useState(false);
   const [showToc,       setShowToc]       = useState(false);
@@ -186,8 +188,6 @@ export default function ReaderScreen({
   const [showHighlights,setShowHighlights]= useState(false);
   const [sessionStartTime] = useState(Date.now());
   const [sessionPages,  setSessionPages]  = useState(0);
-  /* bumping this remounts the WebView, re-opening the book with new settings */
-  const [reloadNonce,   setReloadNonce]   = useState(0);
 
   /* ── Seek slider (jump to any page) ── */
   const [seeking,       setSeeking]       = useState(false);
@@ -223,7 +223,16 @@ export default function ReaderScreen({
         setCurrentPage(savedPage);
         setPercentage(savedPct);
       }
-      const html = buildReaderHtml(epubUrl, savedCfi, DEFAULT_SETTINGS);
+      // Reader theme: follow the app theme, or use the chosen reading theme.
+      const matchApp = await getSetting("readerMatchApp");
+      const epubTheme: ReaderTheme = matchApp
+        ? (isThemeDark(getThemeId()) ? "dark" : "light")
+        : await getSetting("readerTheme");
+      if (!cancelled) setSettings((prev) => ({ ...prev, theme: epubTheme }));
+      const html = buildReaderHtml(epubUrl, savedCfi, {
+        ...DEFAULT_SETTINGS,
+        theme: epubTheme,
+      });
       htmlRef.current = html;
       /* Local files load via a file:// HTML document (same documentDirectory
          tree) so epub.js can XHR the book on iOS. Remote URLs keep the
@@ -267,7 +276,6 @@ export default function ReaderScreen({
       finishSession();
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-      if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current);
     };
   }, [bookId, finishSession]);
 
@@ -337,26 +345,15 @@ export default function ReaderScreen({
     (patch: Partial<ReaderSettings>) => {
       setSettings((prev) => {
         const next = { ...prev, ...patch };
-        // Re-open the book with the new settings baked in. Restyling the
-        // already-rendered epub iframe in place proved unreliable across
-        // devices (dark mode did nothing); re-rendering through the normal
-        // load path always applies. Debounced so rapid font-size taps coalesce
-        // into one reload, and re-opened at the last CFI so position is kept.
-        if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current);
-        rebuildTimerRef.current = setTimeout(() => {
-          const html = buildReaderHtml(epubUrl, latestCfiRef.current, next);
-          htmlRef.current = html;
-          const bump = () => setReloadNonce((n) => n + 1);
-          if (epubUrl.startsWith("file://")) {
-            writeReaderHtmlFile(html).then(bump).catch(bump);
-          } else {
-            bump();
-          }
-        }, 250);
+        // Theme applies as a CSS filter on the outer #viewer element (main
+        // document — always reachable from injected JS), so a plain inject is
+        // instant and reliable. No book reload needed.
+        const json = JSON.stringify(JSON.stringify(next));
+        inject(`window.readerApi.applySettings(${json})`);
         return next;
       });
     },
-    [epubUrl]
+    [inject]
   );
 
   const openSettings = useCallback(() => {
@@ -506,7 +503,6 @@ export default function ReaderScreen({
               startPageRef.current = msg.currentPage;
             }
             if (msg.cfi) {
-              latestCfiRef.current = msg.cfi;
               saveProgressDebounced(
                 msg.cfi,
                 msg.percentage ?? 0,
@@ -595,7 +591,6 @@ export default function ReaderScreen({
       {/* WebView */}
       {htmlReady && htmlRef.current && (
         <WebView
-          key={reloadNonce}
           ref={webViewRef}
           source={sourceUri ? { uri: sourceUri } : { html: htmlRef.current }}
           originWhitelist={["*"]}

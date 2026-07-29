@@ -48,13 +48,13 @@ describe("buildReaderHtml — self-contained document", () => {
     expect(html).toContain("loc.start.displayed");
   });
 
-  it("injects theme styles into the rendered book documents so changes apply live", () => {
-    // The reliable doc handle is the one from the "rendered" event (tap-wiring
-    // uses it and works); external iframe.contentDocument is often inaccessible.
-    expect(html).toContain("renderedDocs");
-    expect(html).toContain('"bb-theme"');
+  it("themes the book with a CSS filter on #viewer (paint effect works over the cross-origin iframe)", () => {
+    // The book text lives in a cross-origin blob iframe we cannot touch. A CSS
+    // filter on the outer #viewer element is a paint effect the browser applies
+    // over the iframe regardless of origin — dark mode = invert the viewer.
+    expect(html).toContain("invert(1) hue-rotate(180deg)"); // dark/night
+    expect(html).toContain("style.filter");
     expect(html).toContain(`padding:0 ${DEFAULT_SETTINGS.marginWidth}px`);
-    expect(html).not.toContain("injectIntoView");
   });
 
   it("re-paginates via resize + display when a layout setting changes", () => {
