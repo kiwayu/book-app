@@ -37,7 +37,8 @@ import {
 } from "@/components/ui/FilterSheet";
 import { getAll } from "@/db/database";
 import { loadPrefs, savePrefs, type LibraryPrefs } from "@/services/preferences";
-import { importBookFromDevice } from "@/services/importBook";
+import { importBookFromDevice, resolveBookSource } from "@/services/importBook";
+import { EpubExtractor } from "@/components/EpubExtractor";
 import { ImportValidationError } from "@/services/localEpub";
 import {
   getSmartCollectionsWithCounts,
@@ -217,7 +218,7 @@ export default function LibraryScreen() {
   const {
     books, folders, tags, isLoading, loadLibrary,
     startReading, finishReading, markDNF, openBook,
-    createFolder, deleteFolder, setCurrentBook, deleteBook,
+    createFolder, deleteFolder, setCurrentBook, deleteBook, updateBookMeta,
   } = useLibraryStore();
   const router = useRouter();
 
@@ -241,6 +242,7 @@ export default function LibraryScreen() {
   const [smartCollectionBookIds, setSmartCollectionBookIds] = useState<number[]>([]);
 
   const [detailBook, setDetailBook] = useState<BookWithEntry | null>(null);
+  const [extractBook, setExtractBook] = useState<{ id: number; uri: string } | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
   const letterPositions = useRef<Map<string, number>>(new Map());
@@ -436,6 +438,10 @@ export default function LibraryScreen() {
         setSearchQuery("");
         setActiveSmartCollection(null);
         setFilters(EMPTY_FILTERS);
+        // Pull author/cover from the epub now (hidden extractor); falls back to
+        // first open if it fails.
+        const uri = await resolveBookSource(res.bookId);
+        if (uri) setExtractBook({ id: res.bookId, uri });
         Alert.alert("Book added", `"${res.title}" was added to Want to Read.`);
       }
     } catch (e) {
@@ -717,7 +723,20 @@ export default function LibraryScreen() {
         visible={detailBook !== null} onClose={() => setDetailBook(null)}
         onStartReading={handleSheetStartReading} onMarkFinished={handleSheetFinish}
         onMarkDNF={handleSheetDNF} onOpenReader={handleSheetOpenReader}
-        onDeleteBook={handleSheetDelete} />
+        onDeleteBook={handleSheetDelete}
+        onEditBook={async (id, fields) => {
+          await updateBookMeta(id, fields);
+          const updated = useLibraryStore.getState().books.find((bk) => bk.id === id);
+          if (updated) setDetailBook(updated);
+        }} />
+
+      {extractBook && (
+        <EpubExtractor
+          bookId={extractBook.id}
+          epubUrl={extractBook.uri}
+          onDone={() => { setExtractBook(null); loadLibrary(); }}
+        />
+      )}
     </View>
   );
 }

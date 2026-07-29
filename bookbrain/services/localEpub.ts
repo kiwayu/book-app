@@ -129,9 +129,12 @@ export async function removeStoredEbook(uri: string): Promise<void> {
  * Persist reader HTML to a file inside documentDirectory so the WebView
  * can load it by URI (file origin) instead of as an HTML string.
  */
-export async function writeReaderHtmlFile(html: string): Promise<string> {
+export async function writeReaderHtmlFile(
+  html: string,
+  name = "current.html"
+): Promise<string> {
   await FileSystem.makeDirectoryAsync(READER_DIR(), { intermediates: true });
-  const dest = `${READER_DIR()}current.html`;
+  const dest = `${READER_DIR()}${name}`;
   await FileSystem.writeAsStringAsync(dest, html);
   return dest;
 }

@@ -70,7 +70,7 @@ interface LibraryState {
   markDNF: (bookId: number) => Promise<void>;
   openBook: (bookId: number) => Promise<void>;
   incrementReread: (bookId: number) => Promise<void>;
-  updateBookMeta: (bookId: number, fields: Partial<Pick<Book, "series" | "series_index" | "genres">>) => Promise<void>;
+  updateBookMeta: (bookId: number, fields: Partial<Pick<Book, "title" | "authors" | "series" | "series_index" | "genres">>) => Promise<void>;
   deleteBook: (bookId: number) => Promise<void>;
   setCurrentBook: (book: BookWithEntry | null) => void;
 
@@ -314,6 +314,14 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     const sets: string[] = [];
     const params: (string | number | null)[] = [];
 
+    if (fields.title !== undefined) {
+      sets.push("title = ?");
+      params.push(fields.title);
+    }
+    if (fields.authors !== undefined) {
+      sets.push("authors = ?");
+      params.push(fields.authors);
+    }
     if (fields.series !== undefined) {
       sets.push("series = ?");
       params.push(fields.series);

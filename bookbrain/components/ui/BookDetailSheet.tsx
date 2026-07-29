@@ -42,6 +42,10 @@ export interface BookDetailSheetProps {
   onMarkDNF?: (bookId: number) => void;
   onOpenReader?: (bookId: number) => void;
   onDeleteBook?: (bookId: number) => void;
+  onEditBook?: (
+    bookId: number,
+    fields: { title?: string; authors?: string | null; series?: string | null; series_index?: number | null; genres?: string | null }
+  ) => void;
 }
 
 /* ── Inline Tab Bar ─────────────────────────────── */
@@ -113,9 +117,15 @@ function getStatusInfo(status: string): { label: string; color: string; bg: stri
 
 export function BookDetailSheet({
   book, progress, visible, onClose,
-  onStartReading, onMarkFinished, onMarkDNF, onOpenReader, onDeleteBook,
+  onStartReading, onMarkFinished, onMarkDNF, onOpenReader, onDeleteBook, onEditBook,
 }: BookDetailSheetProps) {
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [showEdit, setShowEdit] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editAuthor, setEditAuthor] = useState("");
+  const [editSeries, setEditSeries] = useState("");
+  const [editSeriesIdx, setEditSeriesIdx] = useState("");
+  const [editGenres, setEditGenres] = useState("");
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [notes, setNotes] = useState<BookNote[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
@@ -176,6 +186,29 @@ export function BookDetailSheet({
       Alert.alert("Error", "Failed to add note.");
     }
   }, [book, newNoteText]);
+
+  const openEdit = useCallback(() => {
+    if (!book) return;
+    setEditTitle(book.title ?? "");
+    setEditAuthor(book.authors ?? "");
+    setEditSeries(book.series ?? "");
+    setEditSeriesIdx(book.series_index != null ? String(book.series_index) : "");
+    setEditGenres(book.genres ?? "");
+    setShowEdit(true);
+  }, [book]);
+
+  const saveEdit = useCallback(() => {
+    if (!book || !onEditBook) return;
+    const idx = editSeriesIdx.trim();
+    onEditBook(book.id, {
+      title: editTitle.trim() || book.title,
+      authors: editAuthor.trim() || null,
+      series: editSeries.trim() || null,
+      series_index: idx ? Number(idx) : null,
+      genres: editGenres.trim() || null,
+    });
+    setShowEdit(false);
+  }, [book, onEditBook, editTitle, editAuthor, editSeries, editSeriesIdx, editGenres]);
 
   if (!book) return null;
   // Non-null alias for use in nested render functions (TS can't narrow through closures)
@@ -513,6 +546,7 @@ export function BookDetailSheet({
   }
 
   return (
+    <>
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <Pressable style={ds.overlay} onPress={onClose}>
         <Pressable style={ds.sheet} onPress={() => {}}>
@@ -530,6 +564,11 @@ export function BookDetailSheet({
                 <Text style={[ds.statusText, { color: statusInfo.color }]}>{statusInfo.label}</Text>
               </View>
             </View>
+            {onEditBook && (
+              <Pressable style={ds.editBtn} onPress={openEdit} hitSlop={8}>
+                <IconSymbol name="pencil" size={18} color={t.color.accent.base} />
+              </Pressable>
+            )}
           </View>
 
           {/* Tab Bar */}
@@ -542,6 +581,36 @@ export function BookDetailSheet({
         </Pressable>
       </Pressable>
     </Modal>
+
+    {/* ── Edit book modal ── */}
+    <Modal visible={showEdit} transparent animationType="fade" onRequestClose={() => setShowEdit(false)}>
+      <Pressable style={ds.editOverlay} onPress={() => setShowEdit(false)}>
+        <Pressable style={ds.editCard} onPress={() => {}}>
+          <Text style={ds.editHeading}>Edit book</Text>
+          <ScrollView keyboardShouldPersistTaps="handled" style={ds.editScroll}>
+            <Text style={ds.editLabel}>Title</Text>
+            <TextInput style={ds.editInput} value={editTitle} onChangeText={setEditTitle} placeholder="Title" placeholderTextColor={t.color.text.muted} />
+            <Text style={ds.editLabel}>Author</Text>
+            <TextInput style={ds.editInput} value={editAuthor} onChangeText={setEditAuthor} placeholder="Author" placeholderTextColor={t.color.text.muted} />
+            <Text style={ds.editLabel}>Series</Text>
+            <TextInput style={ds.editInput} value={editSeries} onChangeText={setEditSeries} placeholder="Series (optional)" placeholderTextColor={t.color.text.muted} />
+            <Text style={ds.editLabel}>Series number</Text>
+            <TextInput style={ds.editInput} value={editSeriesIdx} onChangeText={setEditSeriesIdx} placeholder="e.g. 1" placeholderTextColor={t.color.text.muted} keyboardType="number-pad" />
+            <Text style={ds.editLabel}>Genres</Text>
+            <TextInput style={ds.editInput} value={editGenres} onChangeText={setEditGenres} placeholder="Comma separated" placeholderTextColor={t.color.text.muted} />
+          </ScrollView>
+          <View style={ds.editActions}>
+            <Pressable style={ds.editCancel} onPress={() => setShowEdit(false)}>
+              <Text style={ds.editCancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable style={ds.editSave} onPress={saveEdit}>
+              <Text style={ds.editSaveText}>Save</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+    </>
   );
 }
 
@@ -993,5 +1062,83 @@ const ds = StyleSheet.create({
     color: t.color.text.muted,
     textAlign: "center",
     maxWidth: 220,
+  },
+
+  /* ── Edit ── */
+  editBtn: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: t.color.accent.bg,
+    alignItems: "center", justifyContent: "center",
+  },
+  editOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(56,73,89,0.52)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: t.space._5,
+  },
+  editCard: {
+    width: "100%",
+    maxWidth: 380,
+    maxHeight: "80%",
+    backgroundColor: t.color.bg.raised,
+    borderRadius: t.radius["4xl"],
+    borderWidth: 1,
+    borderColor: t.color.glass.border,
+    padding: t.space._5,
+    ...t.shadow.heavy,
+  },
+  editHeading: {
+    ...t.font.title,
+    marginBottom: t.space._3,
+  },
+  editScroll: {
+    flexGrow: 0,
+  },
+  editLabel: {
+    ...t.font.label,
+    marginTop: t.space._3,
+    marginBottom: t.space._1,
+  },
+  editInput: {
+    ...t.font.body,
+    color: t.color.text.primary,
+    backgroundColor: t.color.bg.base,
+    borderRadius: t.radius.lg,
+    borderWidth: 1,
+    borderColor: t.color.border.default,
+    paddingHorizontal: t.space._4 - 2,
+    paddingVertical: t.space._3,
+  },
+  editActions: {
+    flexDirection: "row",
+    gap: t.space._3,
+    marginTop: t.space._5,
+  },
+  editCancel: {
+    flex: 1,
+    paddingVertical: t.space._3,
+    borderRadius: t.radius.lg,
+    alignItems: "center",
+    backgroundColor: t.color.bg.base,
+    borderWidth: 1,
+    borderColor: t.color.border.default,
+  },
+  editCancelText: {
+    ...t.font.body,
+    color: t.color.text.secondary,
+    fontWeight: "600",
+  },
+  editSave: {
+    flex: 1,
+    paddingVertical: t.space._3,
+    borderRadius: t.radius.lg,
+    alignItems: "center",
+    backgroundColor: t.color.accent.base,
+  },
+  editSaveText: {
+    ...t.font.body,
+    color: "#fff",
+    fontWeight: "700",
   },
 });
