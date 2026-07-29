@@ -117,12 +117,45 @@ function chapterOf(href){
 }
 
 /* ── theme plumbing ───────────────────────────────────
-   Styling goes through epub.js's themes API, never hand-injected
-   <style> tags: themes participate in epub.js's own layout pass, so
-   pagination is computed WITH our font/line-height. Injecting styles
-   after layout is what clipped text off the right and bottom edges.
-   Page margins live on the OUTER #viewer container (box-sizing:
-   border-box), so epub.js sizes its columns to the padded box. */
+   epub.js's themes API proved unreliable for live changes: themes.select()
+   no-ops once _current is set, so colors never re-applied. Instead we own a
+   <style id="bb-theme"> element inside each book iframe (queried from the
+   #viewer container we control) and rewrite it on every change — colors and
+   fonts apply instantly. Layout metrics (font-size/family/line/margin) also
+   need epub.js to re-columnise, so we resize()+display() after those change;
+   that re-render re-reads the styled DOM, so nothing clips. */
+function themeCss(){
+  var th=THEMES[s.theme]||THEMES.light, ff=(FONTS[s.font]||FONTS.georgia);
+  return "html,body{background:"+th.bg+" !important;color:"+th.fg+" !important;"
+    +"font-family:"+ff+" !important;line-height:"+s.lineHeight+" !important;"
+    +"font-size:"+s.fontSize+"px !important;}"
+    +"body *{color:"+th.fg+" !important;font-family:"+ff+" !important;"
+    +"line-height:"+s.lineHeight+" !important;}"
+    +"a,a *{color:"+th.link+" !important;}"
+    +"p{margin-bottom:.75em;}"
+    +"h1,h2,h3,h4,h5,h6{margin:1em 0 .5em;}"
+    +"img,svg{max-width:100% !important;height:auto !important;}";
+}
+/* Every rendered book iframe document, straight from the DOM we control. */
+function bookDocs(){
+  var out=[], ifr=document.querySelectorAll("#viewer iframe");
+  for(var i=0;i<ifr.length;i++){
+    var d=ifr[i].contentDocument||(ifr[i].contentWindow&&ifr[i].contentWindow.document);
+    if(d&&d.head)out.push(d);
+  }
+  return out;
+}
+function styleDoc(doc){
+  if(!doc||!doc.head)return;
+  var el=doc.getElementById("bb-theme");
+  if(!el){el=doc.createElement("style");el.id="bb-theme";doc.head.appendChild(el);}
+  var css=themeCss();
+  if(el.textContent!==css)el.textContent=css;
+}
+function paintBook(){
+  var docs=bookDocs();
+  for(var i=0;i<docs.length;i++)styleDoc(docs[i]);
+}
 function applyTheme(){
   var th=THEMES[s.theme]||THEMES.light;
   document.body.style.background=th.bg;
@@ -130,20 +163,7 @@ function applyTheme(){
   if(loadEl)loadEl.style.background=th.bg;
   var v=document.getElementById("viewer");
   if(v)v.style.padding="0 "+s.marginWidth+"px";
-  if(!rendition)return;
-  rendition.themes.default({
-    "html,body":{
-      "background":th.bg+" !important",
-      "color":th.fg+" !important",
-      "font-family":(FONTS[s.font]||FONTS.georgia)+" !important",
-      "line-height":String(s.lineHeight)+" !important"
-    },
-    "a":{"color":th.link+" !important"},
-    "p":{"margin-bottom":".75em"},
-    "h1,h2,h3,h4,h5":{"margin":"1em 0 .5em"},
-    "img":{"max-width":"100% !important","height":"auto !important"}
-  });
-  rendition.themes.fontSize(s.fontSize+"px");
+  paintBook();
 }
 
 /* ── apply settings ───────────────────────────────── */
@@ -153,13 +173,14 @@ function applySettings(json){
   var prevLayout=s.font+"_"+s.fontSize+"_"+s.lineHeight+"_"+s.marginWidth;
   Object.assign(s,incoming);
   var newLayout=s.font+"_"+s.fontSize+"_"+s.lineHeight+"_"+s.marginWidth;
-  applyTheme();
+  applyTheme();                    // instant colours + fonts
   if(newLayout!==prevLayout&&rendition){
     try{
       var v=document.getElementById("viewer");
       rendition.resize(v.clientWidth-2*s.marginWidth,v.clientHeight);
     }catch(e){}
-    if(currentCfi)rendition.display(currentCfi).catch(function(){});
+    // re-render re-reads our injected styles → correct pagination, no clip
+    if(currentCfi)rendition.display(currentCfi).then(paintBook).catch(function(){});
   }
 }
 
@@ -236,7 +257,9 @@ try{
     });
   }
   rendition.on("rendered",function(section,view){
-    wireInput((view&&view.document)||(view&&view.iframe&&view.iframe.contentDocument));
+    var doc=(view&&view.document)||(view&&view.iframe&&view.iframe.contentDocument);
+    wireInput(doc);
+    styleDoc(doc);   // colour/font a fresh page the moment it renders
   });
 
 }catch(err){showError("Failed to load book: "+(err&&err.message||"unknown error"));}
@@ -300,8 +323,25 @@ window.readerApi={
   prevPage:       function(){if(rendition)rendition.prev();},
   goToChapter:    function(href){if(rendition)rendition.display(href);},
   goToCfi:        function(cfi){if(rendition)rendition.display(cfi);},
+  goToPercentage: function(p){if(rendition&&book&&book.locations){var c=book.locations.cfiFromPercentage(Math.max(0,Math.min(1,p)));if(c)rendition.display(c);}},
   applySettings:  applySettings,
   getChapterText: getChapterText,
+  /* Resolve the epub's cover to a base64 data URL and post it back. epub.js
+     parses the OPF + inflates the image from the zip archive for us. */
+  extractCover:   function(){
+    try{
+      if(!book){post("cover",{dataUrl:null});return;}
+      book.coverUrl().then(function(url){
+        if(!url){post("cover",{dataUrl:null});return;}
+        return fetch(url).then(function(r){return r.blob();}).then(function(blob){
+          var fr=new FileReader();
+          fr.onload=function(){post("cover",{dataUrl:fr.result});};
+          fr.onerror=function(){post("cover",{dataUrl:null});};
+          fr.readAsDataURL(blob);
+        });
+      }).catch(function(){post("cover",{dataUrl:null});});
+    }catch(e){post("cover",{dataUrl:null});}
+  },
 };
 })();<\/script>
 </body></html>`;

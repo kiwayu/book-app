@@ -48,12 +48,17 @@ describe("buildReaderHtml — self-contained document", () => {
     expect(html).toContain("loc.start.displayed");
   });
 
-  it("styles through epub.js themes; margins live on the outer container", () => {
-    // Hand-injected <style> tags bypassed epub.js layout and clipped
-    // text off the right/bottom page edges (2026-07-19 device bug).
-    expect(html).toContain("rendition.themes.default");
-    expect(html).toContain("rendition.themes.fontSize");
-    expect(html).not.toContain("injectIntoView");
+  it("injects theme styles straight into the book iframes so changes apply live", () => {
+    // epub.js themes.select() no-ops on repeat (stays _current), so colors
+    // never re-applied. Drive the iframes we control instead.
+    expect(html).toContain('querySelectorAll("#viewer iframe")');
+    expect(html).toContain('"bb-theme"');
     expect(html).toContain(`padding:0 ${DEFAULT_SETTINGS.marginWidth}px`);
+    expect(html).not.toContain("injectIntoView");
+  });
+
+  it("re-paginates via resize + display when a layout setting changes", () => {
+    expect(html).toContain("rendition.resize");
+    expect(html).toContain("rendition.display");
   });
 });

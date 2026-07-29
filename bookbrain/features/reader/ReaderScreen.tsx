@@ -50,6 +50,8 @@ import {
   type Bookmark,
 } from "@/services/bookmarks";
 import { writeReaderHtmlFile, readAccessRoot } from "@/services/localEpub";
+import { hasCover, saveCover } from "@/services/epubCover";
+import { useLibraryStore } from "@/store/libraryStore";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { t } from "@/theme";
 
@@ -159,6 +161,7 @@ export default function ReaderScreen({
   const startPageRef    = useRef<number>(0);
   const latestPageRef   = useRef<number>(0);
   const htmlRef         = useRef<string | null>(null);
+  const coverTriedRef   = useRef(false);
 
   const [htmlReady,     setHtmlReady]     = useState(false);
   /* file:// URI of the written reader HTML when the book is a local file
@@ -181,6 +184,11 @@ export default function ReaderScreen({
   const [showHighlights,setShowHighlights]= useState(false);
   const [sessionStartTime] = useState(Date.now());
   const [sessionPages,  setSessionPages]  = useState(0);
+
+  /* ── Seek slider (jump to any page) ── */
+  const [seeking,       setSeeking]       = useState(false);
+  const [seekPct,       setSeekPct]       = useState(0);
+  const seekWidthRef    = useRef(0);
 
   /* ── RSVP speed reading ── */
   const [showRsvp,      setShowRsvp]      = useState(false);
@@ -382,6 +390,19 @@ export default function ReaderScreen({
     [inject, showAndReset]
   );
 
+  /* Drag the progress bar to jump to any page. locationX is relative to the
+     seek track (no horizontal padding), so x/width == fraction read. */
+  const onSeekTouch = useCallback((x: number) => {
+    const w = seekWidthRef.current;
+    if (w > 0) setSeekPct(Math.max(0, Math.min(1, x / w)));
+  }, []);
+
+  const commitSeek = useCallback(() => {
+    inject(`window.readerApi.goToPercentage(${seekPct})`);
+    setSeeking(false);
+    showAndReset();
+  }, [inject, seekPct, showAndReset]);
+
   /* ── Bookmark toggle ───────────────────────────── */
 
   const handleToggleBookmark = useCallback(async () => {
@@ -435,6 +456,18 @@ export default function ReaderScreen({
         const msg = JSON.parse(event.nativeEvent.data);
         switch (msg.type) {
           case "ready":
+            // Grab the cover once per open, only if the book has none yet.
+            if (!coverTriedRef.current) {
+              coverTriedRef.current = true;
+              if (!(await hasCover(bookId))) {
+                inject("window.readerApi.extractCover()");
+              }
+            }
+            break;
+          case "cover":
+            if (msg.dataUrl && (await saveCover(bookId, msg.dataUrl))) {
+              await useLibraryStore.getState().loadLibrary();
+            }
             break;
           case "tap":
             showAndReset();
@@ -649,13 +682,30 @@ export default function ReaderScreen({
           pointerEvents="box-none"
         >
           <View pointerEvents="auto">
-            {/* Progress track */}
+            {/* Progress track — draggable to jump to any page */}
             <View style={s.progressWrap}>
-              <View style={[s.progressTrack, { backgroundColor: barBorder }]}>
+              <View
+                style={s.seekHit}
+                onLayout={(e) => { seekWidthRef.current = e.nativeEvent.layout.width; }}
+                onStartShouldSetResponder={() => true}
+                onMoveShouldSetResponder={() => true}
+                onResponderGrant={(e) => { clearHideTimer(); setSeeking(true); onSeekTouch(e.nativeEvent.locationX); }}
+                onResponderMove={(e) => onSeekTouch(e.nativeEvent.locationX)}
+                onResponderRelease={commitSeek}
+                onResponderTerminate={commitSeek}
+              >
+                <View style={[s.progressTrack, { backgroundColor: barBorder }]}>
+                  <View
+                    style={[
+                      s.progressFill,
+                      { backgroundColor: accent, width: `${(seeking ? seekPct * 100 : Math.min(percentage, 100))}%` as `${number}%` },
+                    ]}
+                  />
+                </View>
                 <View
                   style={[
-                    s.progressFill,
-                    { backgroundColor: accent, width: `${Math.min(percentage, 100)}%` as `${number}%` },
+                    s.seekThumb,
+                    { backgroundColor: accent, left: `${(seeking ? seekPct * 100 : Math.min(percentage, 100))}%` as `${number}%` },
                   ]}
                 />
               </View>
@@ -664,7 +714,9 @@ export default function ReaderScreen({
             {/* Stats row */}
             <View style={s.statsRow}>
               <Text style={[s.statText, { color: sub }]}>
-                {currentPage && totalPages ? `${currentPage} / ${totalPages}` : ""}
+                {seeking && totalPages
+                  ? `→ ${Math.max(1, Math.round(seekPct * totalPages))} / ${totalPages}`
+                  : currentPage && totalPages ? `${currentPage} / ${totalPages}` : ""}
               </Text>
               <Text style={[s.statText, { color: sub }]}>{chapterLeft || readingTime}</Text>
               <Text style={[s.statText, { color: sub }]}>
@@ -1136,6 +1188,20 @@ const s = StyleSheet.create({
   progressWrap: {
     paddingHorizontal: t.space._5,
     paddingTop: t.space._3,
+  },
+  /* generous vertical grab area around the thin visual track */
+  seekHit: {
+    justifyContent: "center",
+    paddingVertical: 12,
+  },
+  seekThumb: {
+    position: "absolute",
+    top: "50%",
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    marginTop: -7,
+    marginLeft: -7,
   },
   progressTrack: {
     height: 3,
