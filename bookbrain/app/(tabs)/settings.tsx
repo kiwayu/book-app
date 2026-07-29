@@ -259,7 +259,7 @@ export default function SettingsTab() {
 
   // Modal state
   const [pickerModal, setPickerModal] = useState<{
-    key: keyof AppSettings;
+    key: keyof AppSettings | "readingTheme";
     title: string;
     options: string[];
     renderLabel?: (v: string) => string;
@@ -567,24 +567,22 @@ export default function SettingsTab() {
             }
           />
           <Row
-            label="Match app theme"
-            value={settings.readerMatchApp ? "On" : "Off"}
-            onPress={() => update("readerMatchApp", !settings.readerMatchApp)}
+            label="Reading theme"
+            value={
+              settings.readerMatchApp
+                ? "Match app"
+                : THEME_LABELS[settings.readerTheme]
+            }
+            onPress={() =>
+              setPickerModal({
+                key: "readingTheme",
+                title: "Reading Theme",
+                options: ["match", "light", "sepia", "dark", "night"],
+                renderLabel: (v) =>
+                  v === "match" ? "Match app theme" : THEME_LABELS[v] ?? v,
+              })
+            }
           />
-          {!settings.readerMatchApp && (
-            <Row
-              label="Reading theme"
-              value={THEME_LABELS[settings.readerTheme]}
-              onPress={() =>
-                setPickerModal({
-                  key: "readerTheme",
-                  title: "Reading Theme",
-                  options: ["light", "sepia", "dark", "night"],
-                  renderLabel: (v) => THEME_LABELS[v] ?? v,
-                })
-              }
-            />
-          )}
           <Row
             label="Line height"
             value={String(settings.readerLineHeight)}
@@ -716,16 +714,28 @@ export default function SettingsTab() {
           visible
           title={pickerModal.title}
           options={pickerModal.options as string[]}
-          current={String(
-            settings[pickerModal.key as keyof AppSettings]
-          )}
+          current={
+            pickerModal.key === "readingTheme"
+              ? settings.readerMatchApp
+                ? "match"
+                : settings.readerTheme
+              : String(settings[pickerModal.key as keyof AppSettings])
+          }
           onSelect={(v) => {
             const key = pickerModal.key;
-            // Handle numeric settings stored as picker strings
-            if (
-              key === "readerFontSize" ||
-              key === "readerMargin"
-            ) {
+            if (key === "readingTheme") {
+              // "match" → follow app theme; otherwise a fixed reading theme
+              if (v === "match") {
+                update("readerMatchApp", true);
+              } else {
+                const theme = v as AppSettings["readerTheme"];
+                setSettings((prev) =>
+                  prev ? { ...prev, readerMatchApp: false, readerTheme: theme } : prev
+                );
+                setSetting("readerMatchApp", false);
+                setSetting("readerTheme", theme);
+              }
+            } else if (key === "readerFontSize" || key === "readerMargin") {
               update(key as "readerFontSize", parseInt(v, 10) as never);
             } else if (key === "readerLineHeight") {
               update(key as "readerLineHeight", parseFloat(v) as never);
