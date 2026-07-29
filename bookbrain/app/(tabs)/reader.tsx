@@ -94,7 +94,11 @@ export default function ReaderTab() {
   /* full-screen reader — takes over the entire tab */
   if (currentBook && epubUrl) {
     return (
+      // Key by book+source so switching books fully remounts: fresh WebView
+      // (new TOC + chapters) and reset cover-extraction guard. Without this the
+      // instance is reused and shows the previous book's chapters/cover.
       <ReaderScreen
+        key={`${currentBook.id}:${epubUrl}`}
         bookId={currentBook.id}
         epubUrl={epubUrl}
         title={currentBook.title}
