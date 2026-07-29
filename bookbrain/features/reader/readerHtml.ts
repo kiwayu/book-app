@@ -203,11 +203,25 @@ try{
     .then(function(){totalPages=book.locations.length();post("locationsGenerated",{totalPages:totalPages});})
     .catch(function(){});
 
+  /* Flatten the nav tree: epubs nest chapters under parts ("books within the
+     book"), so a flat nav.toc.map drops every nested chapter. Recurse into
+     subitems and carry depth for indentation. */
+  function flattenToc(items,level,out){
+    for(var i=0;i<items.length;i++){
+      var ch=items[i];
+      out.push({
+        id:ch.id||(level+"_"+out.length),
+        label:(ch.label||"").trim(),
+        href:ch.href,
+        level:level
+      });
+      if(ch.subitems&&ch.subitems.length)flattenToc(ch.subitems,level+1,out);
+    }
+    return out;
+  }
   book.loaded.navigation
     .then(function(nav){
-      post("tocLoaded",{toc:nav.toc.map(function(ch,i){
-        return{id:ch.id||String(i),label:ch.label.trim(),href:ch.href,index:i};
-      })});
+      post("tocLoaded",{toc:flattenToc(nav.toc||[],0,[])});
     }).catch(function(){});
 
   rendition.on("relocated",function(loc){

@@ -61,7 +61,7 @@ interface TocItem {
   id: string;
   label: string;
   href: string;
-  index: number;
+  level: number;
 }
 
 interface ReaderScreenProps {
@@ -934,9 +934,16 @@ export default function ReaderScreen({
                     <Pressable
                       key={item.id}
                       onPress={() => goToChapter(item.href)}
-                      style={({ pressed }) => [s.tocItem, pressed && s.tocItemPressed]}
+                      style={({ pressed }) => [
+                        s.tocItem,
+                        { paddingLeft: t.space._5 + item.level * t.space._4 },
+                        pressed && s.tocItemPressed,
+                      ]}
                     >
-                      <Text style={s.tocItemText} numberOfLines={2}>
+                      <Text
+                        style={[s.tocItemText, item.level > 0 && s.tocItemNested]}
+                        numberOfLines={2}
+                      >
                         {item.label}
                       </Text>
                       <Text style={s.tocItemChevron}>›</Text>
@@ -1502,6 +1509,10 @@ const s = StyleSheet.create({
     flex: 1,
     ...t.font.body,
     lineHeight: 20,
+  },
+  tocItemNested: {
+    color: t.color.text.tertiary,
+    fontSize: 14,
   },
   tocItemChevron: {
     color: t.color.text.faint,

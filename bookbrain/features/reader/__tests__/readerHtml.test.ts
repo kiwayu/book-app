@@ -61,4 +61,11 @@ describe("buildReaderHtml — self-contained document", () => {
     expect(html).toContain("rendition.resize");
     expect(html).toContain("rendition.display");
   });
+
+  it("flattens nested TOC chapters, not just top-level parts", () => {
+    // Many epubs nest chapters under parts ("books within the book"); the TOC
+    // builder must recurse into subitems or those chapters are lost. Anchored
+    // to our own flattener name ("subitems" alone also matches epub.js source).
+    expect(html).toContain("flattenToc(");
+  });
 });
