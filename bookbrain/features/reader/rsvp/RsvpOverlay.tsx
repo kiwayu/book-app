@@ -240,23 +240,22 @@ export default function RsvpOverlay({
             {prevWord}
           </Text>
 
-          {/* Focus band — fixed central width; ORP letter stays at screen
-              centre and long words truncate inside the band, never spilling
-              into the gutters */}
+          {/* Focus word — one line, auto-shrinks to fit the central band so it
+              is NEVER truncated or ellipsised (adjustsFontSizeToFit scales the
+              font down instead of clipping). The ORP letter is coloured inline.
+              The band width keeps it clear of the prev/next gutters. */}
           <View style={st.wordBand}>
             <Text
-              style={[st.wordSide, st.wordRight, { color: colors.fg }]}
+              testID="rsvp-focus"
+              style={[st.wordLine, { color: colors.fg }]}
               numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.3}
             >
               {parts.left}
-            </Text>
-            <Text style={[st.wordFocus, { color: colors.accent }]}>
-              {parts.focus}
-            </Text>
-            <Text
-              style={[st.wordSide, st.wordLeft, { color: colors.fg }]}
-              numberOfLines={1}
-            >
+              <Text style={{ color: colors.accent, fontWeight: "700" }}>
+                {parts.focus}
+              </Text>
               {parts.right}
             </Text>
           </View>
@@ -448,31 +447,16 @@ const st = StyleSheet.create({
     // gutter words bleed off-screen; the screen clips them
     overflow: "visible",
   },
-  /* central band the focus word is confined to — 60% of width, centred, so
-     the ORP letter sits at screen centre and glyphs never reach the gutters */
+  /* Central band the focus word lives in — 62% of width, centred, clear of the
+     prev/next gutters. NOT clipped: the word auto-shrinks to fit instead. */
   wordBand: {
-    width: "60%",
-    flexDirection: "row",
-    alignItems: "baseline",
+    width: "62%",
+    alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
   },
-  wordSide: {
-    flex: 1,
+  wordLine: {
     fontFamily: MONO,
     fontSize: 40,
-    letterSpacing: 1,
-  },
-  wordRight: {
-    textAlign: "right",
-  },
-  wordLeft: {
-    textAlign: "left",
-  },
-  wordFocus: {
-    fontFamily: MONO,
-    fontSize: 40,
-    fontWeight: "700",
     letterSpacing: 1,
     textAlign: "center",
   },

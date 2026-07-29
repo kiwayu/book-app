@@ -158,6 +158,27 @@ describe("RsvpOverlay", () => {
     expect(onWpmChange).toHaveBeenCalledWith(325);
   });
 
+  it("auto-shrinks the focus word so it is never truncated or ellipsised", () => {
+    const longTokens = tokenizeParagraphs([
+      "supercalifragilisticexpialidocious",
+    ]);
+    let r!: ReactTestRenderer;
+    act(() => {
+      r = create(
+        <RsvpOverlay
+          tokens={longTokens}
+          initialWpm={300}
+          colors={colors}
+          onClose={() => {}}
+        />
+      );
+    });
+    const focus = r.root.findByProps({ testID: "rsvp-focus" });
+    // scale-to-fit + single line == shrinks instead of clipping/ellipsising
+    expect(focus.props.adjustsFontSizeToFit).toBe(true);
+    expect(focus.props.numberOfLines).toBe(1);
+  });
+
   it("handles an empty chapter without crashing", () => {
     const onClose = jest.fn();
     let r!: ReactTestRenderer;
