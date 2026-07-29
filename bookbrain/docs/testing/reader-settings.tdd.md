@@ -2,20 +2,24 @@
 
 **Task:** Themes (dark mode etc.) and reading settings weren't applying live. Overhaul so they work.
 
-## Root cause
+## Root cause (final)
 
 Theme/settings changes are pushed into the reader WebView via
-`window.readerApi.applySettings(json)`. The prior implementation applied colours
-through epub.js's `themes.register("bb")` + `themes.select("bb")`. `select()`
-**no-ops once `_current === "bb"`** (set during initial load), so every later
-theme change updated stored rules but never re-injected them into the live
-iframe — dark mode never visibly changed.
+`window.readerApi.applySettings(json)`. Two earlier attempts failed:
+`themes.select("bb")` (no-ops once `_current === "bb"`), then injecting a
+`<style>` via `document.querySelectorAll("#viewer iframe").contentDocument` —
+which returns **null/inaccessible** after render (cross-origin blob iframe), so
+nothing was ever styled and dark mode did nothing.
+
+The **only reliably accessible** book-document handle is the one epub.js passes
+on the `rendered` event — proven because tap-navigation (`wireInput`) binds to
+that same doc and works. So we capture those docs and style them.
 
 ## Fix
 
-Own a `<style id="bb-theme">` element inside each book iframe, reached by
-querying the `#viewer iframe` DOM we control (not epub.js's unreliable
-`getContents()`), and rewrite it on every change:
+Own a `<style id="bb-theme">` element inside each book document, using the doc
+refs captured from the `rendered` event (`renderedDocs`), and rewrite it on
+every change:
 
 - `themeCss()` — full CSS: `html,body` + `body *` colour/font/line-height/size,
   link colour, block spacing. `body *` forces books that hard-code element

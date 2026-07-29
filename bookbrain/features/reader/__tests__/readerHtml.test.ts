@@ -48,10 +48,10 @@ describe("buildReaderHtml — self-contained document", () => {
     expect(html).toContain("loc.start.displayed");
   });
 
-  it("injects theme styles straight into the book iframes so changes apply live", () => {
-    // epub.js themes.select() no-ops on repeat (stays _current), so colors
-    // never re-applied. Drive the iframes we control instead.
-    expect(html).toContain('querySelectorAll("#viewer iframe")');
+  it("injects theme styles into the rendered book documents so changes apply live", () => {
+    // The reliable doc handle is the one from the "rendered" event (tap-wiring
+    // uses it and works); external iframe.contentDocument is often inaccessible.
+    expect(html).toContain("renderedDocs");
     expect(html).toContain('"bb-theme"');
     expect(html).toContain(`padding:0 ${DEFAULT_SETTINGS.marginWidth}px`);
     expect(html).not.toContain("injectIntoView");

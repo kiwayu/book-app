@@ -88,6 +88,11 @@ var s=${settingsArg};
 var currentCfi=${cfiArg};
 var totalPages=0;
 var book=null,rendition=null;
+/* Book iframe documents captured from the "rendered" event — the ONLY reliably
+   accessible handle (tap-wiring uses it and works). External
+   iframe.contentDocument queries are often null (cross-origin blob), which is
+   why live theme changes appeared to do nothing. */
+var renderedDocs=[];
 
 /* ── messaging ────────────────────────────────────── */
 function post(type,data){
@@ -136,12 +141,18 @@ function themeCss(){
     +"h1,h2,h3,h4,h5,h6{margin:1em 0 .5em;}"
     +"img,svg{max-width:100% !important;height:auto !important;}";
 }
-/* Every rendered book iframe document, straight from the DOM we control. */
+/* Prefer the docs epub.js handed us on "rendered" (accessible); union with the
+   DOM query as a bonus in case a version exposes contentDocument too. */
 function bookDocs(){
-  var out=[], ifr=document.querySelectorAll("#viewer iframe");
-  for(var i=0;i<ifr.length;i++){
-    var d=ifr[i].contentDocument||(ifr[i].contentWindow&&ifr[i].contentWindow.document);
-    if(d&&d.head)out.push(d);
+  var out=[],seen=[],i,d;
+  for(i=0;i<renderedDocs.length;i++){
+    d=renderedDocs[i];
+    if(d&&d.head&&d.defaultView&&seen.indexOf(d)<0){seen.push(d);out.push(d);}
+  }
+  var ifr=document.querySelectorAll("#viewer iframe");
+  for(i=0;i<ifr.length;i++){
+    d=ifr[i].contentDocument||(ifr[i].contentWindow&&ifr[i].contentWindow.document);
+    if(d&&d.head&&seen.indexOf(d)<0){seen.push(d);out.push(d);}
   }
   return out;
 }
@@ -157,12 +168,29 @@ function paintBook(){
   for(var i=0;i<docs.length;i++)styleDoc(docs[i]);
 }
 function applyTheme(){
-  var th=THEMES[s.theme]||THEMES.light;
+  var th=THEMES[s.theme]||THEMES.light, ff=(FONTS[s.font]||FONTS.georgia);
   document.body.style.background=th.bg;
   var loadEl=document.getElementById("loading");
   if(loadEl)loadEl.style.background=th.bg;
   var v=document.getElementById("viewer");
   if(v)v.style.padding="0 "+s.marginWidth+"px";
+  /* Register the theme with epub.js so it is applied during the layout pass on
+     (re)render — this is the reliable path; the book is re-opened with new
+     settings, so this runs at load every time settings change. */
+  if(rendition&&rendition.themes){
+    try{
+      rendition.themes.default({
+        "html, body":{
+          "background":th.bg+" !important","color":th.fg+" !important",
+          "font-family":ff+" !important","line-height":String(s.lineHeight)+" !important",
+          "font-size":s.fontSize+"px !important"
+        },
+        "body *":{"color":th.fg+" !important","font-family":ff+" !important"},
+        "a, a *":{"color":th.link+" !important"},
+        "img, svg":{"max-width":"100% !important","height":"auto !important"}
+      });
+    }catch(e){}
+  }
   paintBook();
 }
 
@@ -272,8 +300,14 @@ try{
   }
   rendition.on("rendered",function(section,view){
     var doc=(view&&view.document)||(view&&view.iframe&&view.iframe.contentDocument);
+    if(doc&&renderedDocs.indexOf(doc)<0)renderedDocs.push(doc);
     wireInput(doc);
     styleDoc(doc);   // colour/font a fresh page the moment it renders
+  });
+  rendition.on("removed",function(section,view){
+    var doc=(view&&view.document)||(view&&view.iframe&&view.iframe.contentDocument);
+    var idx=renderedDocs.indexOf(doc);
+    if(idx>=0)renderedDocs.splice(idx,1);
   });
 
 }catch(err){showError("Failed to load book: "+(err&&err.message||"unknown error"));}

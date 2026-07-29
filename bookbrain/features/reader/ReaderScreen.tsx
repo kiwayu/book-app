@@ -162,6 +162,8 @@ export default function ReaderScreen({
   const latestPageRef   = useRef<number>(0);
   const htmlRef         = useRef<string | null>(null);
   const coverTriedRef   = useRef(false);
+  const latestCfiRef    = useRef<string | null>(null);
+  const rebuildTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [htmlReady,     setHtmlReady]     = useState(false);
   /* file:// URI of the written reader HTML when the book is a local file
@@ -184,6 +186,8 @@ export default function ReaderScreen({
   const [showHighlights,setShowHighlights]= useState(false);
   const [sessionStartTime] = useState(Date.now());
   const [sessionPages,  setSessionPages]  = useState(0);
+  /* bumping this remounts the WebView, re-opening the book with new settings */
+  const [reloadNonce,   setReloadNonce]   = useState(0);
 
   /* ── Seek slider (jump to any page) ── */
   const [seeking,       setSeeking]       = useState(false);
@@ -263,6 +267,7 @@ export default function ReaderScreen({
       finishSession();
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current);
     };
   }, [bookId, finishSession]);
 
@@ -332,13 +337,26 @@ export default function ReaderScreen({
     (patch: Partial<ReaderSettings>) => {
       setSettings((prev) => {
         const next = { ...prev, ...patch };
-        const settingsJson = JSON.stringify(next);
-        const escapedJson  = JSON.stringify(settingsJson);
-        inject(`window.readerApi.applySettings(${escapedJson})`);
+        // Re-open the book with the new settings baked in. Restyling the
+        // already-rendered epub iframe in place proved unreliable across
+        // devices (dark mode did nothing); re-rendering through the normal
+        // load path always applies. Debounced so rapid font-size taps coalesce
+        // into one reload, and re-opened at the last CFI so position is kept.
+        if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current);
+        rebuildTimerRef.current = setTimeout(() => {
+          const html = buildReaderHtml(epubUrl, latestCfiRef.current, next);
+          htmlRef.current = html;
+          const bump = () => setReloadNonce((n) => n + 1);
+          if (epubUrl.startsWith("file://")) {
+            writeReaderHtmlFile(html).then(bump).catch(bump);
+          } else {
+            bump();
+          }
+        }, 250);
         return next;
       });
     },
-    [inject]
+    [epubUrl]
   );
 
   const openSettings = useCallback(() => {
@@ -488,6 +506,7 @@ export default function ReaderScreen({
               startPageRef.current = msg.currentPage;
             }
             if (msg.cfi) {
+              latestCfiRef.current = msg.cfi;
               saveProgressDebounced(
                 msg.cfi,
                 msg.percentage ?? 0,
@@ -576,6 +595,7 @@ export default function ReaderScreen({
       {/* WebView */}
       {htmlReady && htmlRef.current && (
         <WebView
+          key={reloadNonce}
           ref={webViewRef}
           source={sourceUri ? { uri: sourceUri } : { html: htmlRef.current }}
           originWhitelist={["*"]}
