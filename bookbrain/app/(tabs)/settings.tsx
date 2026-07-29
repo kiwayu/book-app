@@ -16,7 +16,7 @@ import * as Sharing from "expo-sharing";
 import { Paths, writeAsStringAsync, readAsStringAsync } from "expo-file-system";
 import * as DocumentPicker from "expo-document-picker";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { t } from "@/theme";
+import { t, THEME_LIST, getThemeId, setThemeId } from "@/theme";
 import {
   exportLibraryJSON,
   exportLibraryCSV,
@@ -477,6 +477,39 @@ export default function SettingsTab() {
         <Text style={s.title}>Settings</Text>
         <Text style={s.subtitle}>Preferences and app configuration</Text>
 
+        {/* ── Appearance (app-wide light/dark) ─────── */}
+
+        <Section title="Appearance">
+          <View style={s.themeGrid}>
+            {THEME_LIST.map((th) => {
+              const active = getThemeId() === th.id;
+              return (
+                <Pressable
+                  key={th.id}
+                  style={[s.themeCard, active && s.themeCardActive]}
+                  onPress={() => setThemeId(th.id)}
+                >
+                  <View style={[s.themeSwatch, { backgroundColor: th.bg }]}>
+                    <View style={[s.themeSwatchBar, { backgroundColor: th.text }]} />
+                    <View style={[s.themeSwatchDot, { backgroundColor: th.accent }]} />
+                    {active && (
+                      <View style={s.themeCheck}>
+                        <IconSymbol name="checkmark" size={12} color="#fff" />
+                      </View>
+                    )}
+                  </View>
+                  <Text
+                    style={[s.themeName, active && s.themeNameActive]}
+                    numberOfLines={1}
+                  >
+                    {th.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Section>
+
         {/* ── Library ──────────────────────────────── */}
 
         <Section title="Library">
@@ -534,17 +567,24 @@ export default function SettingsTab() {
             }
           />
           <Row
-            label="Default theme"
-            value={THEME_LABELS[settings.readerTheme]}
-            onPress={() =>
-              setPickerModal({
-                key: "readerTheme",
-                title: "Reader Theme",
-                options: ["light", "sepia", "dark", "night"],
-                renderLabel: (v) => THEME_LABELS[v] ?? v,
-              })
-            }
+            label="Match app theme"
+            value={settings.readerMatchApp ? "On" : "Off"}
+            onPress={() => update("readerMatchApp", !settings.readerMatchApp)}
           />
+          {!settings.readerMatchApp && (
+            <Row
+              label="Reading theme"
+              value={THEME_LABELS[settings.readerTheme]}
+              onPress={() =>
+                setPickerModal({
+                  key: "readerTheme",
+                  title: "Reading Theme",
+                  options: ["light", "sepia", "dark", "night"],
+                  renderLabel: (v) => THEME_LABELS[v] ?? v,
+                })
+              }
+            />
+          )}
           <Row
             label="Line height"
             value={String(settings.readerLineHeight)}
@@ -799,6 +839,69 @@ const s = StyleSheet.create({
     color: t.color.text.faint,
     fontSize: 20,
     fontWeight: "300",
+  },
+
+  /* ── Appearance theme grid ─── */
+  themeGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    padding: t.space._3,
+    gap: t.space._3,
+  },
+  themeCard: {
+    width: "30%",
+    flexGrow: 1,
+    borderRadius: t.radius.xl,
+    borderWidth: 1.5,
+    borderColor: "transparent",
+    padding: t.space._1,
+  },
+  themeCardActive: {
+    borderColor: t.color.accent.base,
+  },
+  themeSwatch: {
+    height: 48,
+    borderRadius: t.radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.color.border.default,
+    overflow: "hidden",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+  },
+  themeSwatchBar: {
+    height: 4,
+    width: "60%",
+    borderRadius: 2,
+    opacity: 0.9,
+  },
+  themeSwatchDot: {
+    position: "absolute",
+    right: 8,
+    bottom: 8,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  themeCheck: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: t.color.accent.base,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  themeName: {
+    ...t.font.caption,
+    textAlign: "center",
+    marginTop: t.space._1,
+    color: t.color.text.secondary,
+  },
+  themeNameActive: {
+    color: t.color.accent.strong,
+    fontWeight: "800",
   },
 
   /* ── Modal ─── */
