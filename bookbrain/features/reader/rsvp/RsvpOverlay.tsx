@@ -176,6 +176,8 @@ export default function RsvpOverlay({
 
   /* ── derived render values ─────────────────────────── */
   const currentWord = count > 0 ? tokens[clampIndex(index)].word : "";
+  const prevWord = index > 0 ? tokens[index - 1].word : "";
+  const nextWord = index + 1 < count ? tokens[index + 1].word : "";
   const parts = useMemo(() => splitOrp(currentWord), [currentWord]);
   const progressPct = count > 0 ? ((index + 1) / count) * 100 : 0;
 
@@ -229,20 +231,42 @@ export default function RsvpOverlay({
           testID="rsvp-word"
           accessibilityLabel={currentWord}
         >
+          {/* Prev word — dimmed, locked to the left gutter (inner edge fixed
+              outside the focus band → can never overlap the focus word) */}
           <Text
-            style={[st.wordSide, st.wordRight, { color: colors.fg }]}
+            style={[st.contextSide, st.contextLeft, { color: colors.fg }]}
             numberOfLines={1}
           >
-            {parts.left}
+            {prevWord}
           </Text>
-          <Text style={[st.wordFocus, { color: colors.accent }]}>
-            {parts.focus}
-          </Text>
+
+          {/* Focus band — fixed central width; ORP letter stays at screen
+              centre and long words truncate inside the band, never spilling
+              into the gutters */}
+          <View style={st.wordBand}>
+            <Text
+              style={[st.wordSide, st.wordRight, { color: colors.fg }]}
+              numberOfLines={1}
+            >
+              {parts.left}
+            </Text>
+            <Text style={[st.wordFocus, { color: colors.accent }]}>
+              {parts.focus}
+            </Text>
+            <Text
+              style={[st.wordSide, st.wordLeft, { color: colors.fg }]}
+              numberOfLines={1}
+            >
+              {parts.right}
+            </Text>
+          </View>
+
+          {/* Next word — dimmed, locked to the right gutter */}
           <Text
-            style={[st.wordSide, st.wordLeft, { color: colors.fg }]}
+            style={[st.contextSide, st.contextRight, { color: colors.fg }]}
             numberOfLines={1}
           >
-            {parts.right}
+            {nextWord}
           </Text>
         </View>
         <View style={[st.tick, st.tickBottom, { backgroundColor: colors.accent }]} />
@@ -418,9 +442,20 @@ const st = StyleSheet.create({
   },
   wordRow: {
     flexDirection: "row",
-    alignItems: "baseline",
+    alignItems: "center",
+    justifyContent: "center",
     width: "100%",
-    paddingHorizontal: 16,
+    // gutter words bleed off-screen; the screen clips them
+    overflow: "visible",
+  },
+  /* central band the focus word is confined to — 60% of width, centred, so
+     the ORP letter sits at screen centre and glyphs never reach the gutters */
+  wordBand: {
+    width: "60%",
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   wordSide: {
     flex: 1,
@@ -440,6 +475,25 @@ const st = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 1,
     textAlign: "center",
+  },
+  /* prev/next words flank the focus, absolutely placed so they never shift
+     the ORP-centered word; unconstrained width lets long words bleed off-edge */
+  contextSide: {
+    position: "absolute",
+    top: "50%",
+    transform: [{ translateY: -16 }],
+    fontFamily: MONO,
+    fontSize: 22,
+    letterSpacing: 1,
+    opacity: 0.22,
+  },
+  contextLeft: {
+    right: "82%",
+    textAlign: "right",
+  },
+  contextRight: {
+    left: "82%",
+    textAlign: "left",
   },
   hint: {
     position: "absolute",
