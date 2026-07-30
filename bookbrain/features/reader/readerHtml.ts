@@ -123,11 +123,21 @@ function showError(msg){
 }
 
 /* ── chapter title resolver ───────────────────────── */
+/* Populated from the flattened nav tree once navigation loads. Searching the
+   flat list matters: epubs nest chapters under parts, and a top-level-only
+   scan returns "" for every nested chapter — which is most of them in a book
+   that has parts at all. */
+var flatToc=[];
 function chapterOf(href){
+  if(!href)return"";
+  for(var i=0;i<flatToc.length;i++){
+    if(flatToc[i].href&&flatToc[i].href.indexOf(href)!==-1)return flatToc[i].label;
+  }
+  // Nav tree not loaded yet: fall back to the raw top-level list.
   if(!book||!book.navigation||!book.navigation.toc)return"";
   var toc=book.navigation.toc;
-  for(var i=0;i<toc.length;i++){
-    if(toc[i].href&&toc[i].href.indexOf(href)!==-1)return toc[i].label.trim();
+  for(var j=0;j<toc.length;j++){
+    if(toc[j].href&&toc[j].href.indexOf(href)!==-1)return(toc[j].label||"").trim();
   }
   return"";
 }
@@ -254,7 +264,8 @@ try{
   }
   book.loaded.navigation
     .then(function(nav){
-      post("tocLoaded",{toc:flattenToc(nav.toc||[],0,[])});
+      flatToc=flattenToc(nav.toc||[],0,[]);   // also feeds chapterOf()
+      post("tocLoaded",{toc:flatToc});
     }).catch(function(){});
 
   rendition.on("relocated",function(loc){
@@ -385,25 +396,58 @@ function getChapterText(){
    Moving the rendition (rather than reading ahead invisibly) is what keeps the
    page underneath correct when the overlay is closed. Sections with no text —
    covers, nav pages — are skipped, so the reader never lands on a blank one. */
+/* Generation counter: closing the overlay bumps it, so an advance already in
+   flight goes quiet instead of racing the close and dragging the page forward
+   a chapter. Every async continuation re-checks it before touching anything. */
+var advGen=0;
+/* A rendition that fails systematically would otherwise walk the entire spine,
+   one real display() per section. Bound the skip run. */
+var MAX_SKIP=20;
+
 function nextChapter(){
-  function stop(){post("chapterText",{paragraphs:[],chapter:"",endOfBook:true});}
+  var gen=++advGen;
+  var startHref=currentHref();
+  function alive(){return gen===advGen;}
+  function stop(){
+    // Nothing further to read: put the book back where the walk started rather
+    // than leaving it parked on whatever blank section we stopped at.
+    if(!alive())return;
+    if(startHref){try{rendition.display(startHref);}catch(e){}}
+    post("chapterText",{paragraphs:[],chapter:"",endOfBook:true});
+  }
   if(!book||!rendition||!book.spine){stop();return;}
   var cur=null;
-  try{cur=book.spine.get(currentHref());}catch(e){}
+  try{cur=book.spine.get(startHref);}catch(e){}
   if(!cur||typeof cur.index!=="number"){stop();return;}
-  function step(n){
+  function step(n,skipped){
+    if(!alive())return;
+    if(skipped>=MAX_SKIP){stop();return;}
     var sec=null;
     try{sec=book.spine.get(n);}catch(e){}
     if(!sec){stop();return;}
     rendition.display(sec.href).then(function(){
+      if(!alive())return;
       var paras=chapterParagraphs();
-      if(!paras.length){step(n+1);return;}
+      if(!paras.length){step(n+1,skipped+1);return;}
       repaintContents();
-      post("chapterText",{paragraphs:paras,chapter:chapterOf(sec.href),advanced:true});
-    }).catch(function(){step(n+1);});
+      post("chapterText",{
+        paragraphs:paras,
+        chapter:chapterOf(sec.href),
+        spineIndex:n,
+        advanced:true
+      });
+    }).catch(function(){
+      // A rejected display is a failure, not an empty chapter. Keep walking,
+      // but it counts against the skip budget so we cannot loop the book.
+      step(n+1,skipped+1);
+    });
   }
-  step(cur.index+1);
+  step(cur.index+1,0);
 }
+
+/* Called before the overlay closes: invalidates any in-flight advance so the
+   close-time seek is the last navigation to win. */
+function cancelAdvance(){advGen++;}
 
 /* Move the page to the Nth text block of the current chapter — where speed
    reading stopped (RSVP tokens carry that index). Posts currentCfi afterwards
@@ -414,16 +458,26 @@ function goToBlock(n){
   try{
     var cs=rendition&&rendition.getContents&&rendition.getContents();
     if(cs&&cs.document)cs=[cs];
-    var c=cs&&cs[0];
-    if(!c||!c.document||!c.cfiFromNode){fallback();return;}
-    var blocks=textBlocks(c.document);
-    if(!blocks.length){fallback();return;}
-    var el=blocks[Math.max(0,Math.min(blocks.length-1,n))];
+    if(!cs||!cs.length){fallback();return;}
+    /* paragraphIndex is minted over the CONCATENATION of every doc in
+       chapterParagraphs(), so consume it the same way: walk the docs in order,
+       subtracting each one's block count, instead of clamping into doc 0. */
+    var idx=Math.max(0,n),c=null,el=null;
+    for(var i=0;i<cs.length;i++){
+      if(!cs[i]||!cs[i].document)continue;
+      var blocks=textBlocks(cs[i].document);
+      if(!blocks.length)continue;
+      if(idx<blocks.length){c=cs[i];el=blocks[idx];break;}
+      idx-=blocks.length;
+      c=cs[i];el=blocks[blocks.length-1];   // past the end → last block seen
+    }
+    if(!c||!el||!c.cfiFromNode){fallback();return;}
     var cfi=c.cfiFromNode(el);
     if(!cfi){fallback();return;}
+    /* Post the CFI we computed, not currentCfi: relocated is not guaranteed to
+       have run, and the marker must land on the block we asked for. */
     rendition.display(cfi)
-      /* let the relocated handler land first so currentCfi is the new page */
-      .then(function(){setTimeout(function(){post("currentCfi",{cfi:currentCfi||cfi});},0);})
+      .then(function(){post("currentCfi",{cfi:cfi});})
       .catch(fallback);
   }catch(e){fallback();}
 }
@@ -504,6 +558,7 @@ window.readerApi={
   applySettings:  applySettings,
   getChapterText: getChapterText,
   nextChapter:    nextChapter,
+  cancelAdvance:  cancelAdvance,
   goToBlock:      goToBlock,
   /* Place the caret at a WebView-relative point; posts the word index. */
   caretAt:        function(mx,my){

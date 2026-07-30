@@ -210,6 +210,19 @@ export default function ReaderScreen({
   /* Bumped per chapter load so the overlay remounts: a fresh mount is exactly
      "paused at word 0 of the new chapter" with no extra reset plumbing. */
   const [rsvpEpoch,     setRsvpEpoch]     = useState(0);
+  /* Mirrors showRsvp for the message handler and the progress writer, which
+     both run outside React's render and would otherwise read a stale value. */
+  const showRsvpRef     = useRef(false);
+  /* True from close until the close-time seek reports back. The seek is a real
+     navigation, so progress writes during it must not clear the resume pointer. */
+  const rsvpSeekingRef  = useRef(false);
+  /* Guards against a second nextChapter() while one is still walking the spine
+     (the overlay stays interactive during the async window). */
+  const advancingRef    = useRef(false);
+  /* Words streamed this session, accumulated ACROSS chapter advances — the
+     per-chapter token array is discarded on every advance. */
+  const rsvpWordsRef    = useRef(0);
+  const rsvpSessionRef  = useRef<number | null>(null);
 
   const sheetAnim = useRef(new Animated.Value(0)).current;
 
@@ -217,6 +230,10 @@ export default function ReaderScreen({
   useEffect(() => {
     loadPrefs().then((p) => setRsvpWpm(p.rsvpWpm ?? 300));
   }, []);
+
+  /* The WebView message handler and the debounced progress writer both run
+     outside render and need the live value, not a captured one. */
+  useEffect(() => { showRsvpRef.current = showRsvp; }, [showRsvp]);
 
   /* ── HTML built once after loading saved progress ── */
 
@@ -313,7 +330,15 @@ export default function ReaderScreen({
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       latestPageRef.current = page;
       saveTimerRef.current = setTimeout(async () => {
-        await updateProgress(bookId, page, pct, cfi);
+        /* Speed reading drives real navigations (chapter advance, close-time
+           seek). Those must not clear the RSVP resume pointer — D16 clears it
+           when NORMAL reading resumes, and neither of these is that. */
+        const inRsvp = showRsvpRef.current || rsvpSeekingRef.current;
+        await updateProgress(bookId, page, pct, cfi, inRsvp);
+        /* Nor should they rotate the page-reading session: the spine walk fires
+           several of these, which would scatter one RSVP session across rows
+           and inflate pages_read with synthetic jumps. */
+        if (inRsvp) return;
         const pagesRead = Math.max(0, page - startPageRef.current);
         if (sessionIdRef.current && pagesRead > 0) {
           await endSession(sessionIdRef.current, pagesRead);
@@ -447,20 +472,36 @@ export default function ReaderScreen({
   const openRsvp = useCallback(() => {
     clearHideTimer();
     setShowControls(false);
+    rsvpWordsRef.current = 0;
+    // Speed reading gets its own session row so its words and WPM are not
+    // averaged into page reading (and vice versa).
+    startSession(bookId, "rsvp").then((id) => { rsvpSessionRef.current = id; });
     // Pull the current chapter's text; handler opens the overlay on reply.
     inject("window.readerApi.getChapterText()");
-  }, [inject, clearHideTimer]);
+  }, [inject, clearHideTimer, bookId]);
 
   /* Chapter finished: walk the book itself to the next one and pull its text.
-     The reply arrives as a chapterText message flagged `advanced`. */
+     The reply arrives as a chapterText message flagged `advanced`. The guard
+     matters because the overlay stays interactive while the walk runs: a
+     second finish would start a concurrent walk and skip a chapter. */
   const advanceRsvp = useCallback(() => {
+    if (advancingRef.current) return;
+    advancingRef.current = true;
     inject("window.readerApi.nextChapter()");
   }, [inject]);
 
   const closeRsvp = useCallback(
     (lastIndex: number) => {
       setShowRsvp(false);
-      if (rsvpTokens.length > 0) {
+      showRsvpRef.current = false;
+      advancingRef.current = false;
+      const hadTokens = rsvpTokens.length > 0;
+      if (hadTokens) {
+        /* Cancel any advance still walking the spine FIRST. Without this its
+           display() resolves after our seek and drags the book a chapter
+           forward — the exact bug this whole feature exists to prevent. */
+        rsvpSeekingRef.current = true;
+        inject("window.readerApi.cancelAdvance()");
         /* Leave the page where speed reading stopped, not where it was when the
            overlay opened. Tokens carry the block they came from, and goToBlock
            posts back the landed CFI — which drops the marker in the right spot. */
@@ -468,9 +509,17 @@ export default function ReaderScreen({
         rsvpMarkerRef.current = true;
         inject(`window.readerApi.goToBlock(${stop?.paragraphIndex ?? 0})`);
       }
+      // Close the RSVP session with everything streamed across all chapters.
+      const words = rsvpWordsRef.current + (hadTokens ? lastIndex + 1 : 0);
+      const sid = rsvpSessionRef.current;
+      if (sid) {
+        endSession(sid, 0, { wordsRead: words, wpmLast: rsvpWpm });
+        rsvpSessionRef.current = null;
+      }
       setRsvpTokens([]);
+      rsvpWordsRef.current = 0;
       // Persist resume pointer (clamped to a real word) and remember the speed.
-      setRsvpWordIndex(bookId, rsvpTokens.length > 0 ? lastIndex : null);
+      setRsvpWordIndex(bookId, hadTokens ? lastIndex : null);
       savePrefs({ rsvpWpm });
       showAndReset();
     },
@@ -557,6 +606,9 @@ export default function ReaderScreen({
             if (cfi) {
               if (rsvpMarkerRef.current) {
                 rsvpMarkerRef.current = false;
+                // The close-time seek has landed: normal reading resumes from
+                // here, so later progress writes may clear the pointer again.
+                rsvpSeekingRef.current = false;
                 // goToBlock has already moved the page; latestPageRef holds the
                 // number that arrived with it (state here is a render behind).
                 const page = latestPageRef.current || currentPage;
@@ -570,7 +622,19 @@ export default function ReaderScreen({
             break;
           }
           case "chapterText": {
+            /* An advance that was cancelled by closing still posts its reply.
+               Applying it would resurrect the overlay's tokens after close. */
+            if (msg.advanced && !showRsvpRef.current) {
+              advancingRef.current = false;
+              break;
+            }
+            if (msg.advanced) {
+              advancingRef.current = false;
+              // Bank the finished chapter before its tokens are replaced.
+              rsvpWordsRef.current += rsvpTokens.length;
+            }
             if (msg.endOfBook) {
+              advancingRef.current = false;
               // Nothing left to advance into; the overlay stays on its finished
               // state so the last chapter can still be replayed or closed.
               Alert.alert("Speed reading", "That was the last chapter.");
@@ -632,7 +696,7 @@ export default function ReaderScreen({
         /* malformed message */
       }
     },
-    [saveProgressDebounced, showAndReset, bookId, currentPage, inject, chapter]
+    [saveProgressDebounced, showAndReset, bookId, currentPage, inject, chapter, rsvpTokens.length]
   );
 
   /* ── Derived values ─────────────────────────────── */

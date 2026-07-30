@@ -1,11 +1,20 @@
 import { execute, getOne } from "@/db/database";
 
+/** How a session was read. Validated here, not by the schema: SQLite cannot
+ *  ALTER ADD a CHECK constraint onto an existing table. */
+export type ReadingMode = "page" | "rsvp";
+
 export interface ReadingSession {
   id: number;
   book_id: number;
   start_time: string;
   end_time: string | null;
   pages_read: number;
+  /** Words streamed in RSVP; 0 for page reading. */
+  words_read: number;
+  mode: ReadingMode;
+  /** WPM the reader ended on. Not an average — see TODOS if weighting matters. */
+  wpm_last: number | null;
 }
 
 export interface ReadingProgress {
@@ -20,29 +29,46 @@ export interface ReadingProgress {
 
 const now = () => new Date().toISOString();
 
-export async function startSession(bookId: number): Promise<number> {
+export async function startSession(
+  bookId: number,
+  mode: ReadingMode = "page"
+): Promise<number> {
   const result = await execute(
-    "INSERT INTO reading_sessions (book_id, start_time, pages_read) VALUES (?, ?, 0)",
-    [bookId, now()]
+    "INSERT INTO reading_sessions (book_id, start_time, pages_read, mode) VALUES (?, ?, 0, ?)",
+    [bookId, now(), mode === "rsvp" ? "rsvp" : "page"]
   );
   return result.lastInsertRowId;
 }
 
+/** Words and WPM are only meaningful for an RSVP session; omit them otherwise. */
 export async function endSession(
   sessionId: number,
-  pagesRead: number
+  pagesRead: number,
+  rsvp?: { wordsRead: number; wpmLast: number }
 ): Promise<void> {
   await execute(
-    "UPDATE reading_sessions SET end_time = ?, pages_read = ? WHERE id = ?",
-    [now(), pagesRead, sessionId]
+    `UPDATE reading_sessions
+        SET end_time   = ?,
+            pages_read = ?,
+            words_read = ?,
+            wpm_last   = COALESCE(?, wpm_last)
+      WHERE id = ?`,
+    [now(), pagesRead, rsvp?.wordsRead ?? 0, rsvp?.wpmLast ?? null, sessionId]
   );
 }
 
+/**
+ * `keepRsvp` exists because the speed reader's own close-time seek is a real
+ * navigation: it fires `relocated`, which lands here. Without the flag that
+ * write NULLs the resume pointer the reader just saved (D16 clears the pointer
+ * when NORMAL reading resumes, which a close-time seek is not).
+ */
 export async function updateProgress(
   bookId: number,
   currentPage: number,
   percentage: number,
-  cfi?: string | null
+  cfi?: string | null,
+  keepRsvp = false
 ): Promise<void> {
   await execute(
     `INSERT INTO reading_progress (book_id, current_page, percentage, last_opened, cfi)
@@ -52,7 +78,7 @@ export async function updateProgress(
        percentage      = excluded.percentage,
        last_opened     = excluded.last_opened,
        cfi             = COALESCE(excluded.cfi, reading_progress.cfi),
-       rsvp_word_index = NULL`,
+       rsvp_word_index = ${keepRsvp ? "reading_progress.rsvp_word_index" : "NULL"}`,
     [bookId, currentPage, percentage, now(), cfi ?? null]
   );
 }
