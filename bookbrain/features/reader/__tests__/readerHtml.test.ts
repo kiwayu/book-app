@@ -68,6 +68,25 @@ describe("buildReaderHtml — self-contained document", () => {
     expect(html).toContain("bb-caret");            // the caret element
   });
 
+  it("auto-advances speed reading by navigating the book, so the page stays correct", () => {
+    // Finishing a chapter must move the rendition itself to the next spine
+    // section — reading the next chapter's text without navigating would leave
+    // the page underneath the overlay stranded on the old chapter.
+    expect(html).toContain("nextChapter:");
+    expect(html).toContain("book.spine.get(");
+    expect(html).toContain("advanced:true");
+    expect(html).toContain("endOfBook:true");
+  });
+
+  it("maps a speed-reading stop back to a page via the same block list", () => {
+    // token.paragraphIndex indexes collectParagraphs' output, so goToBlock must
+    // query the identical selector and skip the identical empty blocks.
+    expect(html).toContain("goToBlock:");
+    expect(html).toContain("textBlocks(");
+    expect(html).toContain("cfiFromNode");
+    expect((html.match(/BLOCK_SEL/g) ?? []).length).toBeGreaterThan(1);
+  });
+
   it("flattens nested TOC chapters, not just top-level parts", () => {
     // Many epubs nest chapters under parts ("books within the book"); the TOC
     // builder must recurse into subitems or those chapters are lost. Anchored

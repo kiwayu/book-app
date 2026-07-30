@@ -54,6 +54,8 @@ interface RsvpOverlayProps {
   chapter?: string;
   colors: RsvpColors;
   onWpmChange?: (wpm: number) => void;
+  /** Called when playback reaches the last word (parent loads the next chapter). */
+  onFinish?: () => void;
   /** Called on close with the last word index reached (for resume). */
   onClose: (lastIndex: number) => void;
 }
@@ -67,6 +69,7 @@ export default function RsvpOverlay({
   chapter,
   colors,
   onWpmChange,
+  onFinish,
   onClose,
 }: RsvpOverlayProps) {
   const count = tokens.length;
@@ -87,6 +90,11 @@ export default function RsvpOverlay({
   const clockStartRef = useRef(0);
   const rafRef = useRef<number | null>(null);
 
+  /* Kept in a ref so the parent handing us a new callback never restarts the
+     rAF loop (a restart mid-word would re-read the clock for nothing). */
+  const finishRef = useRef(onFinish);
+  useEffect(() => { finishRef.current = onFinish; }, [onFinish]);
+
   /* ── rAF playback loop ─────────────────────────────── */
   useEffect(() => {
     if (!playing) return;
@@ -98,6 +106,7 @@ export default function RsvpOverlay({
       if (isFinished(scheduleRef.current, elapsed)) {
         setPlaying(false);
         setFinished(true);
+        finishRef.current?.();
         return;
       }
       rafRef.current = requestAnimationFrame(tick);

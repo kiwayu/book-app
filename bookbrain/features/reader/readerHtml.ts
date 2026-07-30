@@ -331,14 +331,27 @@ function currentDocs(){
   }
   return docs;
 }
+var BLOCK_SEL="p,li,blockquote,h1,h2,h3,h4,h5,h6";
+/* Blocks that actually carry text, in reading order. The RSVP token stream is
+   built from exactly this list, so token.paragraphIndex indexes straight back
+   into it — that is what lets goToBlock() land the page on the stopping word.
+   Empty spacer blocks must stay skipped in BOTH places or the mapping drifts. */
+function textBlocks(doc){
+  var out=[];
+  if(!doc||!doc.body)return out;
+  var blocks=doc.body.querySelectorAll(BLOCK_SEL);
+  for(var i=0;i<blocks.length;i++){
+    if((blocks[i].textContent||"").replace(/\\s+/g," ").trim())out.push(blocks[i]);
+  }
+  return out;
+}
 function collectParagraphs(doc){
   var out=[];
   if(!doc||!doc.body)return out;
-  var blocks=doc.body.querySelectorAll("p,li,blockquote,h1,h2,h3,h4,h5,h6");
-  if(blocks&&blocks.length){
+  var blocks=textBlocks(doc);
+  if(blocks.length){
     for(var i=0;i<blocks.length;i++){
-      var txt=(blocks[i].textContent||"").replace(/\\s+/g," ").trim();
-      if(txt)out.push(txt);
+      out.push((blocks[i].textContent||"").replace(/\\s+/g," ").trim());
     }
   }else{
     var body=(doc.body.textContent||"").replace(/\\r/g,"");
@@ -350,16 +363,69 @@ function collectParagraphs(doc){
   }
   return out;
 }
+function chapterParagraphs(){
+  var paras=[],docs=currentDocs();
+  for(var i=0;i<docs.length;i++){
+    var got=collectParagraphs(docs[i]);
+    for(var k=0;k<got.length;k++)paras.push(got[k]);
+  }
+  return paras;
+}
+function currentHref(){
+  return (rendition&&rendition.location&&rendition.location.start&&rendition.location.start.href)||"";
+}
 function getChapterText(){
   try{
-    var paras=[],docs=currentDocs();
-    for(var i=0;i<docs.length;i++){
-      var got=collectParagraphs(docs[i]);
-      for(var k=0;k<got.length;k++)paras.push(got[k]);
-    }
-    var href=(rendition&&rendition.location&&rendition.location.start&&rendition.location.start.href)||"";
-    post("chapterText",{paragraphs:paras,chapter:chapterOf(href)});
+    post("chapterText",{paragraphs:chapterParagraphs(),chapter:chapterOf(currentHref())});
   }catch(e){post("chapterText",{paragraphs:[],chapter:""});}
+}
+
+/* Auto-advance when speed reading finishes a chapter: actually navigate the
+   book to the next spine section with text, then hand its paragraphs back.
+   Moving the rendition (rather than reading ahead invisibly) is what keeps the
+   page underneath correct when the overlay is closed. Sections with no text —
+   covers, nav pages — are skipped, so the reader never lands on a blank one. */
+function nextChapter(){
+  function stop(){post("chapterText",{paragraphs:[],chapter:"",endOfBook:true});}
+  if(!book||!rendition||!book.spine){stop();return;}
+  var cur=null;
+  try{cur=book.spine.get(currentHref());}catch(e){}
+  if(!cur||typeof cur.index!=="number"){stop();return;}
+  function step(n){
+    var sec=null;
+    try{sec=book.spine.get(n);}catch(e){}
+    if(!sec){stop();return;}
+    rendition.display(sec.href).then(function(){
+      var paras=chapterParagraphs();
+      if(!paras.length){step(n+1);return;}
+      repaintContents();
+      post("chapterText",{paragraphs:paras,chapter:chapterOf(sec.href),advanced:true});
+    }).catch(function(){step(n+1);});
+  }
+  step(cur.index+1);
+}
+
+/* Move the page to the Nth text block of the current chapter — where speed
+   reading stopped (RSVP tokens carry that index). Posts currentCfi afterwards
+   so the caller can drop its marker on the page the reader actually landed on,
+   not the stale one it was showing while the overlay was up. */
+function goToBlock(n){
+  function fallback(){post("currentCfi",{cfi:currentCfi});}
+  try{
+    var cs=rendition&&rendition.getContents&&rendition.getContents();
+    if(cs&&cs.document)cs=[cs];
+    var c=cs&&cs[0];
+    if(!c||!c.document||!c.cfiFromNode){fallback();return;}
+    var blocks=textBlocks(c.document);
+    if(!blocks.length){fallback();return;}
+    var el=blocks[Math.max(0,Math.min(blocks.length-1,n))];
+    var cfi=c.cfiFromNode(el);
+    if(!cfi){fallback();return;}
+    rendition.display(cfi)
+      /* let the relocated handler land first so currentCfi is the new page */
+      .then(function(){setTimeout(function(){post("currentCfi",{cfi:currentCfi||cfi});},0);})
+      .catch(fallback);
+  }catch(e){fallback();}
 }
 
 /* ── caret (pick RSVP start word) ──────────────────────
@@ -433,9 +499,12 @@ window.readerApi={
   prevPage:       function(){if(rendition)rendition.prev();},
   goToChapter:    function(href){if(rendition)rendition.display(href);},
   goToCfi:        function(cfi){if(rendition)rendition.display(cfi);},
+  getCurrentCfi:  function(){post("currentCfi",{cfi:currentCfi});},
   goToPercentage: function(p){if(rendition&&book&&book.locations){var c=book.locations.cfiFromPercentage(Math.max(0,Math.min(1,p)));if(c)rendition.display(c);}},
   applySettings:  applySettings,
   getChapterText: getChapterText,
+  nextChapter:    nextChapter,
+  goToBlock:      goToBlock,
   /* Place the caret at a WebView-relative point; posts the word index. */
   caretAt:        function(mx,my){
     try{

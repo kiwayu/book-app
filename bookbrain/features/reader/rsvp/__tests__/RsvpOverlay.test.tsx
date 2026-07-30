@@ -138,6 +138,47 @@ describe("RsvpOverlay", () => {
     expect(onClose).toHaveBeenCalledWith(2);
   });
 
+  it("tells the parent once when the chapter finishes, and mounts the next one paused", () => {
+    const onFinish = jest.fn();
+    let r!: ReactTestRenderer;
+    act(() => {
+      r = create(
+        <RsvpOverlay
+          tokens={tokens}
+          initialWpm={300}
+          colors={colors}
+          onFinish={onFinish}
+          onClose={() => {}}
+        />
+      );
+    });
+
+    press(r, "rsvp-playpause");
+    clock = 1200; // past "delta"'s paragraph-end pause (cumEnd ≈ 1160)
+    flushFrame();
+    expect(onFinish).toHaveBeenCalledTimes(1);
+
+    // The parent answers by remounting with the next chapter's tokens — a fresh
+    // mount is the "paused at the first word" state the user asked for.
+    const next = tokenizeParagraphs(["epsilon zeta"]);
+    let r2!: ReactTestRenderer;
+    act(() => {
+      r2 = create(
+        <RsvpOverlay
+          tokens={next}
+          initialWpm={300}
+          colors={colors}
+          onFinish={onFinish}
+          onClose={() => {}}
+        />
+      );
+    });
+    expect(word(r2)).toBe("epsilon");
+    clock = 5000;
+    flushFrame(); // no rAF scheduled while paused → still the first word
+    expect(word(r2)).toBe("epsilon");
+  });
+
   it("emits WPM changes to the parent", () => {
     const onWpmChange = jest.fn();
     let r!: ReactTestRenderer;

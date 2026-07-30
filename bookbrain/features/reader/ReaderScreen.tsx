@@ -207,6 +207,9 @@ export default function ReaderScreen({
   const [rsvpChapter,   setRsvpChapter]   = useState("");
   const [rsvpWpm,       setRsvpWpm]       = useState(300);
   const rsvpStartIdxRef = useRef(0);
+  /* Bumped per chapter load so the overlay remounts: a fresh mount is exactly
+     "paused at word 0 of the new chapter" with no extra reset plumbing. */
+  const [rsvpEpoch,     setRsvpEpoch]     = useState(0);
 
   const sheetAnim = useRef(new Animated.Value(0)).current;
 
@@ -448,13 +451,22 @@ export default function ReaderScreen({
     inject("window.readerApi.getChapterText()");
   }, [inject, clearHideTimer]);
 
+  /* Chapter finished: walk the book itself to the next one and pull its text.
+     The reply arrives as a chapterText message flagged `advanced`. */
+  const advanceRsvp = useCallback(() => {
+    inject("window.readerApi.nextChapter()");
+  }, [inject]);
+
   const closeRsvp = useCallback(
     (lastIndex: number) => {
       setShowRsvp(false);
-      // Drop a marker on the page where speed reading stopped.
       if (rsvpTokens.length > 0) {
+        /* Leave the page where speed reading stopped, not where it was when the
+           overlay opened. Tokens carry the block they came from, and goToBlock
+           posts back the landed CFI — which drops the marker in the right spot. */
+        const stop = rsvpTokens[Math.min(lastIndex, rsvpTokens.length - 1)];
         rsvpMarkerRef.current = true;
-        inject("window.readerApi.getCurrentCfi()");
+        inject(`window.readerApi.goToBlock(${stop?.paragraphIndex ?? 0})`);
       }
       setRsvpTokens([]);
       // Persist resume pointer (clamped to a real word) and remember the speed.
@@ -462,7 +474,7 @@ export default function ReaderScreen({
       savePrefs({ rsvpWpm });
       showAndReset();
     },
-    [bookId, rsvpTokens.length, rsvpWpm, showAndReset, inject]
+    [bookId, rsvpTokens, rsvpWpm, showAndReset, inject]
   );
 
   /* ── Session summary on close ──────────────────── */
@@ -545,7 +557,10 @@ export default function ReaderScreen({
             if (cfi) {
               if (rsvpMarkerRef.current) {
                 rsvpMarkerRef.current = false;
-                await addBookmark(bookId, cfi, "⚡ Speed reading", currentPage || undefined);
+                // goToBlock has already moved the page; latestPageRef holds the
+                // number that arrived with it (state here is a render behind).
+                const page = latestPageRef.current || currentPage;
+                await addBookmark(bookId, cfi, "⚡ Speed reading", page || undefined);
               } else {
                 await toggleBookmark(bookId, cfi, currentPage || undefined);
               }
@@ -555,12 +570,24 @@ export default function ReaderScreen({
             break;
           }
           case "chapterText": {
+            if (msg.endOfBook) {
+              // Nothing left to advance into; the overlay stays on its finished
+              // state so the last chapter can still be replayed or closed.
+              Alert.alert("Speed reading", "That was the last chapter.");
+              break;
+            }
             const paragraphs: string[] = Array.isArray(msg.paragraphs)
               ? msg.paragraphs
               : [];
             const tokens = tokenizeParagraphs(paragraphs);
             setRsvpTokens(tokens);
             setRsvpChapter(msg.chapter || chapter || "");
+            if (msg.advanced) {
+              // Auto-advanced past a chapter end: remount at word 0, paused.
+              rsvpStartIdxRef.current = 0;
+              setRsvpEpoch((n) => n + 1);
+              break;
+            }
             // If a caret start word was chosen, begin there (no resume prompt).
             const caretStart = caretStartIdxRef.current;
             if (caretStart > 0 && tokens.length > 0) {
@@ -1155,6 +1182,7 @@ export default function ReaderScreen({
       {/* ── RSVP speed-reading overlay ─────────────── */}
       {showRsvp && (
         <RsvpOverlay
+          key={rsvpEpoch}
           tokens={rsvpTokens}
           initialWpm={rsvpWpm}
           startIndex={rsvpStartIdxRef.current}
@@ -1168,6 +1196,7 @@ export default function ReaderScreen({
             border: t.color.border.default,
           }}
           onWpmChange={setRsvpWpm}
+          onFinish={advanceRsvp}
           onClose={closeRsvp}
         />
       )}
