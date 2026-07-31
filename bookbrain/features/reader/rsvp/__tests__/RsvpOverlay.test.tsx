@@ -179,6 +179,111 @@ describe("RsvpOverlay", () => {
     expect(word(r2)).toBe("epsilon");
   });
 
+  /* ── chapter transition ─────────────────────────────
+     The label is held in the word slot rather than on a card: RSVP's premise
+     is that the eye never moves, so a new surface at the chapter boundary
+     would break the one thing the feature is for. */
+
+  function slot(r: ReactTestRenderer): string {
+    return r.root.findByProps({ testID: "rsvp-slot" }).props.children;
+  }
+
+  it("holds the chapter label in the word slot, then resumes on its own", () => {
+    let r!: ReactTestRenderer;
+    act(() => {
+      r = create(
+        <RsvpOverlay
+          tokens={tokens}
+          initialWpm={300}
+          introLabel="Chapter 2 — The Return"
+          colors={colors}
+          onClose={() => {}}
+        />
+      );
+    });
+
+    // The label occupies the word slot; no focus word is rendered yet.
+    expect(slot(r)).toBe("Chapter 2 — The Return");
+    expect(() => r.root.findByProps({ testID: "rsvp-focus" })).toThrow();
+
+    // 6 word slots at 300 WPM = 1200ms.
+    clock = 1300;
+    flushFrame();
+
+    expect(word(r)).toBe("alpha"); // resumed at the first word
+    expect(() => r.root.findByProps({ testID: "rsvp-slot" })).toThrow();
+  });
+
+  it("stays put when tapped during the intro instead of resuming", () => {
+    let r!: ReactTestRenderer;
+    act(() => {
+      r = create(
+        <RsvpOverlay
+          tokens={tokens}
+          initialWpm={300}
+          introLabel="Chapter 2"
+          colors={colors}
+          onClose={() => {}}
+        />
+      );
+    });
+
+    press(r, "rsvp-stage"); // "Tap to stay here"
+
+    clock = 5000;
+    flushFrame(); // the hold would long since have elapsed
+
+    // Paused on the first word, not playing.
+    expect(word(r)).toBe("alpha");
+    clock = 9000;
+    flushFrame();
+    expect(word(r)).toBe("alpha");
+  });
+
+  it("says it is fetching the next chapter rather than claiming to be finished", () => {
+    // The old behaviour showed "Finished — tap restart" during the async spine
+    // walk, and the restart button replayed the chapter just completed.
+    let r!: ReactTestRenderer;
+    act(() => {
+      r = create(
+        <RsvpOverlay
+          tokens={tokens}
+          initialWpm={300}
+          advancing
+          colors={colors}
+          onClose={() => {}}
+        />
+      );
+    });
+
+    expect(slot(r)).toBe("Next chapter…");
+    expect(r.root.findByProps({ testID: "rsvp-playpause" }).props.disabled).toBe(
+      true
+    );
+  });
+
+  it("marks the end of a book in the word slot, with a way back", () => {
+    const onBackToChapter = jest.fn();
+    let r!: ReactTestRenderer;
+    act(() => {
+      r = create(
+        <RsvpOverlay
+          tokens={tokens}
+          initialWpm={300}
+          endOfBook
+          bookTitle="Dune"
+          onBackToChapter={onBackToChapter}
+          colors={colors}
+          onClose={() => {}}
+        />
+      );
+    });
+
+    expect(slot(r)).toBe("You finished Dune");
+    press(r, "rsvp-back-chapter");
+    expect(onBackToChapter).toHaveBeenCalled();
+  });
+
   it("emits WPM changes to the parent", () => {
     const onWpmChange = jest.fn();
     let r!: ReactTestRenderer;

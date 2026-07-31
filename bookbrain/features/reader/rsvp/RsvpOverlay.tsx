@@ -15,6 +15,7 @@ import {
   Pressable,
   StyleSheet,
   Platform,
+  AccessibilityInfo,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -31,6 +32,18 @@ const WPM_MAX = 900;
 const WPM_STEP = 25;
 const PRESETS = [250, 350, 450, 600];
 const SEEK_WORDS = 5;
+
+/* Chapter intro hold, measured in word slots rather than milliseconds: a fixed
+   2s reads as a stall at 250 WPM and a jolt at 600. Clamped so it stays a beat
+   at either extreme. */
+const INTRO_WORD_SLOTS = 6;
+const INTRO_MIN_MS = 1200;
+const INTRO_MAX_MS = 2500;
+
+function introHoldMs(wpm: number): number {
+  const raw = INTRO_WORD_SLOTS * (60000 / wpm);
+  return Math.max(INTRO_MIN_MS, Math.min(INTRO_MAX_MS, raw));
+}
 
 const MONO = Platform.select({
   ios: "Menlo",
@@ -56,6 +69,20 @@ interface RsvpOverlayProps {
   onWpmChange?: (wpm: number) => void;
   /** Called when playback reaches the last word (parent loads the next chapter). */
   onFinish?: () => void;
+  /**
+   * Set when these tokens arrived from a chapter advance. The label is held in
+   * the word slot, then playback resumes on its own. Absent = a normal open,
+   * which stays paused.
+   */
+  introLabel?: string;
+  /** A chapter advance is walking the spine; nothing is playable yet. */
+  advancing?: boolean;
+  /** No chapter left to advance into. */
+  endOfBook?: boolean;
+  /** Shown in the end-of-book message. */
+  bookTitle?: string;
+  /** End-of-book: return to the chapter just finished instead of closing. */
+  onBackToChapter?: () => void;
   /** Called on close with the last word index reached (for resume). */
   onClose: (lastIndex: number) => void;
 }
@@ -70,6 +97,11 @@ export default function RsvpOverlay({
   colors,
   onWpmChange,
   onFinish,
+  introLabel,
+  advancing = false,
+  endOfBook = false,
+  bookTitle,
+  onBackToChapter,
   onClose,
 }: RsvpOverlayProps) {
   const count = tokens.length;
@@ -94,6 +126,45 @@ export default function RsvpOverlay({
      rAF loop (a restart mid-word would re-read the clock for nothing). */
   const finishRef = useRef(onFinish);
   useEffect(() => { finishRef.current = onFinish; }, [onFinish]);
+
+  /* ── accessibility ─────────────────────────────────
+     An auto-dismissing timer is a trap for anyone who cannot read it in time.
+     Screen reader on => never auto-resume, wait for a deliberate play.
+     Reduce motion on => no crossfade, and treat the hold as a stop too: the
+     setting signals "do not move things at me on your schedule". */
+  const [a11y, setA11y] = useState({ screenReader: false, reduceMotion: false });
+  const a11yRef = useRef(a11y);
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      AccessibilityInfo.isScreenReaderEnabled(),
+      AccessibilityInfo.isReduceMotionEnabled(),
+    ])
+      .then(([screenReader, reduceMotion]) => {
+        if (!alive) return;
+        const cur = a11yRef.current;
+        // Both settings off is the common case and matches the initial state.
+        // Skip the dispatch entirely rather than scheduling a render that
+        // resolves to the same values.
+        if (cur.screenReader === screenReader && cur.reduceMotion === reduceMotion) {
+          return;
+        }
+        a11yRef.current = { screenReader, reduceMotion };
+        setA11y(a11yRef.current);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const autoResumeAllowed = !a11y.screenReader && !a11y.reduceMotion;
+
+  /* ── chapter intro ─────────────────────────────────
+     The label is held in the word slot, never on a card: RSVP's whole premise
+     is that the eye does not move, and a card would move it at the one moment
+     the reader is mid-flow. The progress track doubles as the countdown, so
+     the resume reads as caused rather than random. */
+  const [intro, setIntro] = useState(!!introLabel);
+  const [introLeft, setIntroLeft] = useState(1); // 1 → 0
+  const introRafRef = useRef<number | null>(null);
 
   /* ── rAF playback loop ─────────────────────────────── */
   useEffect(() => {
@@ -172,11 +243,51 @@ export default function RsvpOverlay({
     setPlaying(true);
   }, [tokens, count]);
 
+  /** Tap during the intro: stay here, paused at word 0. */
+  const cancelIntro = useCallback(() => {
+    if (introRafRef.current != null) cancelAnimationFrame(introRafRef.current);
+    introRafRef.current = null;
+    setIntro(false);
+    setIntroLeft(0);
+  }, []);
+
+  /* Hold the chapter label, drain the countdown, then resume on our own.
+     Declared after `play` so the dependency array can name it. */
+  useEffect(() => {
+    if (!intro) return;
+    if (introLabel) AccessibilityInfo.announceForAccessibility?.(introLabel);
+    if (!autoResumeAllowed) return; // held indefinitely; tap to continue
+    const hold = introHoldMs(wpmRef.current);
+    const started = now();
+    const tick = () => {
+      // A frame can already be queued when the reader taps to stay. Cancelling
+      // clears this ref, so a tick that slips through must not start playback.
+      if (introRafRef.current == null) return;
+      const left = 1 - (now() - started) / hold;
+      if (left <= 0) {
+        setIntroLeft(0);
+        setIntro(false);
+        play();
+        return;
+      }
+      setIntroLeft(left);
+      introRafRef.current = requestAnimationFrame(tick);
+    };
+    introRafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (introRafRef.current != null) cancelAnimationFrame(introRafRef.current);
+      introRafRef.current = null;
+    };
+  }, [intro, introLabel, autoResumeAllowed, play]);
+
   const toggle = useCallback(() => {
+    // Order matters: the intro owns the tap while it is up.
+    if (intro) { cancelIntro(); return; }
+    if (advancing) return;              // nothing to play yet
     if (finished) restart();
     else if (playing) pause();
     else play();
-  }, [finished, playing, play, pause, restart]);
+  }, [intro, cancelIntro, advancing, finished, playing, play, pause, restart]);
 
   const handleClose = useCallback(() => {
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
@@ -184,11 +295,35 @@ export default function RsvpOverlay({
   }, [onClose]);
 
   /* ── derived render values ─────────────────────────── */
+  /* One of these owns the word slot at a time. Everything below the stage
+     (transport, WPM, presets) stays mounted through all of them — the moment a
+     reader most wants to slow down is the moment a card would hide the
+     controls. */
+  const slot: "word" | "intro" | "advancing" | "done" =
+    endOfBook ? "done" : advancing ? "advancing" : intro ? "intro" : "word";
+
   const currentWord = count > 0 ? tokens[clampIndex(index)].word : "";
-  const prevWord = index > 0 ? tokens[index - 1].word : "";
-  const nextWord = index + 1 < count ? tokens[index + 1].word : "";
+  const prevWord = index > 0 && slot === "word" ? tokens[index - 1].word : "";
+  const nextWord =
+    index + 1 < count && slot === "word" ? tokens[index + 1].word : "";
   const parts = useMemo(() => splitOrp(currentWord), [currentWord]);
-  const progressPct = count > 0 ? ((index + 1) / count) * 100 : 0;
+  /* During the intro the track is the countdown, so the resume reads as caused
+     rather than random. Same pixels, no extra chrome. */
+  const progressPct =
+    slot === "intro"
+      ? introLeft * 100
+      : count > 0
+        ? ((index + 1) / count) * 100
+        : 0;
+
+  const slotText =
+    slot === "done"
+      ? bookTitle ? `You finished ${bookTitle}` : "You finished the book"
+      : slot === "advancing"
+        ? "Next chapter…"
+        : slot === "intro"
+          ? introLabel || ""
+          : "";
 
   /* ── empty chapter ─────────────────────────────────── */
   if (count === 0) {
@@ -235,10 +370,15 @@ export default function RsvpOverlay({
       <Pressable style={st.stage} onPress={toggle} testID="rsvp-stage">
         {/* ORP guide ticks */}
         <View style={[st.tick, st.tickTop, { backgroundColor: colors.accent }]} />
+        {/* While playing this label changes several times a second, which a
+            screen reader would read as an unbroken firehose. Hide it during
+            playback; paused and intro states stay announceable. */}
         <View
           style={st.wordRow}
           testID="rsvp-word"
           accessibilityLabel={currentWord}
+          accessibilityElementsHidden={playing}
+          importantForAccessibility={playing ? "no-hide-descendants" : "auto"}
         >
           {/* Prev word — dimmed, locked to the left gutter (inner edge fixed
               outside the focus band → can never overlap the focus word) */}
@@ -252,21 +392,39 @@ export default function RsvpOverlay({
           {/* Focus word — one line, auto-shrinks to fit the central band so it
               is NEVER truncated or ellipsised (adjustsFontSizeToFit scales the
               font down instead of clipping). The ORP letter is coloured inline.
-              The band width keeps it clear of the prev/next gutters. */}
+              The band width keeps it clear of the prev/next gutters.
+              Chapter labels and end-of-book share this slot so the eye never
+              has to travel to a new surface. */}
           <View style={st.wordBand}>
-            <Text
-              testID="rsvp-focus"
-              style={[st.wordLine, { color: colors.fg }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.3}
-            >
-              {parts.left}
-              <Text style={{ color: colors.accent, fontWeight: "700" }}>
-                {parts.focus}
+            {slot === "word" ? (
+              <Text
+                testID="rsvp-focus"
+                style={[st.wordLine, { color: colors.fg }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.3}
+              >
+                {parts.left}
+                <Text style={{ color: colors.accent, fontWeight: "700" }}>
+                  {parts.focus}
+                </Text>
+                {parts.right}
               </Text>
-              {parts.right}
-            </Text>
+            ) : (
+              <Text
+                testID="rsvp-slot"
+                style={[
+                  st.slotLine,
+                  { color: slot === "advancing" ? colors.sub : colors.fg },
+                ]}
+                numberOfLines={2}
+                adjustsFontSizeToFit
+                minimumFontScale={0.4}
+                accessibilityLiveRegion="polite"
+              >
+                {slotText}
+              </Text>
+            )}
           </View>
 
           {/* Next word — dimmed, locked to the right gutter */}
@@ -281,7 +439,17 @@ export default function RsvpOverlay({
 
         {!playing && (
           <Text style={[st.hint, { color: colors.sub }]}>
-            {finished ? "Finished — tap restart" : "Tap to play"}
+            {slot === "done"
+              ? "Done, or go back to the last chapter"
+              : slot === "advancing"
+                ? "Finding the next chapter"
+                : slot === "intro"
+                  ? autoResumeAllowed
+                    ? "Tap to stay here"
+                    : "Tap to start the chapter"
+                  : finished
+                    ? "Finished — tap restart"
+                    : "Tap to play"}
           </Text>
         )}
       </Pressable>
@@ -300,38 +468,70 @@ export default function RsvpOverlay({
           />
         </View>
         <Text style={[st.progressTxt, { color: colors.sub }]}>
-          {index + 1} / {count} words · {wpm} WPM
+          {slot === "done"
+            ? `${wpm} WPM`
+            : `${index + 1} / ${count} words · ${wpm} WPM`}
         </Text>
       </View>
 
-      {/* Transport controls */}
-      <View style={st.controls}>
-        <Pressable
-          style={st.ctrlBtn}
-          onPress={() => seek(-SEEK_WORDS)}
-          hitSlop={8}
-        >
-          <Text style={[st.ctrlTxt, { color: colors.fg }]}>«</Text>
-        </Pressable>
+      {/* Transport controls. Present in every state — disabled, never hidden,
+          so the layout does not jump and the controls stay where the hand
+          expects them. */}
+      {slot === "done" ? (
+        <View style={st.controls}>
+          <Pressable
+            style={[st.endBtn, { borderColor: colors.border }]}
+            onPress={onBackToChapter}
+            testID="rsvp-back-chapter"
+          >
+            <Text style={[st.endBtnTxt, { color: colors.fg }]}>
+              Last chapter
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[st.endBtn, { backgroundColor: colors.accent, borderColor: colors.accent }]}
+            onPress={handleClose}
+            testID="rsvp-done"
+          >
+            <Text style={[st.endBtnTxt, { color: "#fff" }]}>Done</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <View style={st.controls}>
+          <Pressable
+            style={[st.ctrlBtn, advancing && st.disabled]}
+            onPress={() => seek(-SEEK_WORDS)}
+            disabled={advancing}
+            hitSlop={8}
+          >
+            <Text style={[st.ctrlTxt, { color: colors.fg }]}>«</Text>
+          </Pressable>
 
-        <Pressable
-          style={[st.playBtn, { backgroundColor: colors.accent }]}
-          onPress={toggle}
-          testID="rsvp-playpause"
-        >
-          <Text style={st.playTxt}>
-            {finished ? "↻" : playing ? "❚❚" : "▶"}
-          </Text>
-        </Pressable>
+          <Pressable
+            style={[
+              st.playBtn,
+              { backgroundColor: colors.accent },
+              advancing && st.disabled,
+            ]}
+            onPress={toggle}
+            disabled={advancing}
+            testID="rsvp-playpause"
+          >
+            <Text style={st.playTxt}>
+              {intro ? "❚❚" : finished ? "↻" : playing ? "❚❚" : "▶"}
+            </Text>
+          </Pressable>
 
-        <Pressable
-          style={st.ctrlBtn}
-          onPress={() => seek(SEEK_WORDS)}
-          hitSlop={8}
-        >
-          <Text style={[st.ctrlTxt, { color: colors.fg }]}>»</Text>
-        </Pressable>
-      </View>
+          <Pressable
+            style={[st.ctrlBtn, advancing && st.disabled]}
+            onPress={() => seek(SEEK_WORDS)}
+            disabled={advancing}
+            hitSlop={8}
+          >
+            <Text style={[st.ctrlTxt, { color: colors.fg }]}>»</Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* WPM stepper */}
       <View style={st.wpmRow}>
@@ -468,6 +668,27 @@ const st = StyleSheet.create({
     fontSize: 40,
     letterSpacing: 1,
     textAlign: "center",
+  },
+  /* Chapter label / end-of-book share the word slot. Not monospace: this is
+     prose, and the difference makes it read as "not a word in the stream". */
+  slotLine: {
+    fontSize: 24,
+    fontWeight: "600",
+    textAlign: "center",
+    lineHeight: 32,
+  },
+  disabled: {
+    opacity: 0.35,
+  },
+  endBtn: {
+    paddingHorizontal: 22,
+    paddingVertical: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  endBtnTxt: {
+    fontSize: 15,
+    fontWeight: "700",
   },
   /* prev/next words flank the focus, absolutely placed so they never shift
      the ORP-centered word; unconstrained width lets long words bleed off-edge */

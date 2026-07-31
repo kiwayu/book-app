@@ -387,8 +387,11 @@ function currentHref(){
 }
 function getChapterText(){
   try{
-    post("chapterText",{paragraphs:chapterParagraphs(),chapter:chapterOf(currentHref())});
-  }catch(e){post("chapterText",{paragraphs:[],chapter:""});}
+    var h=currentHref();
+    /* href identifies WHICH chapter these tokens are: a resume pointer without
+       it can land part-way into a different, merely-long-enough chapter. */
+    post("chapterText",{paragraphs:chapterParagraphs(),chapter:chapterOf(h),href:h});
+  }catch(e){post("chapterText",{paragraphs:[],chapter:"",href:""});}
 }
 
 /* Auto-advance when speed reading finishes a chapter: actually navigate the
@@ -433,6 +436,7 @@ function nextChapter(){
       post("chapterText",{
         paragraphs:paras,
         chapter:chapterOf(sec.href),
+        href:sec.href,
         spineIndex:n,
         advanced:true
       });

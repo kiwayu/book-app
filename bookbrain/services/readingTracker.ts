@@ -25,6 +25,9 @@ export interface ReadingProgress {
   cfi: string | null;
   /** Word index reached in RSVP speed-reading; NULL once normal reading resumes. */
   rsvp_word_index: number | null;
+  /** Chapter href that index belongs to. Without it the index is ambiguous
+   *  across chapters and can resume part-way into the wrong one. */
+  rsvp_href: string | null;
 }
 
 const now = () => new Date().toISOString();
@@ -78,7 +81,8 @@ export async function updateProgress(
        percentage      = excluded.percentage,
        last_opened     = excluded.last_opened,
        cfi             = COALESCE(excluded.cfi, reading_progress.cfi),
-       rsvp_word_index = ${keepRsvp ? "reading_progress.rsvp_word_index" : "NULL"}`,
+       rsvp_word_index = ${keepRsvp ? "reading_progress.rsvp_word_index" : "NULL"},
+       rsvp_href       = ${keepRsvp ? "reading_progress.rsvp_href" : "NULL"}`,
     [bookId, currentPage, percentage, now(), cfi ?? null]
   );
 }
@@ -89,15 +93,17 @@ export async function updateProgress(
  */
 export async function setRsvpWordIndex(
   bookId: number,
-  wordIndex: number | null
+  wordIndex: number | null,
+  href: string | null = null
 ): Promise<void> {
   await execute(
-    `INSERT INTO reading_progress (book_id, current_page, percentage, last_opened, rsvp_word_index)
-     VALUES (?, 0, 0, ?, ?)
+    `INSERT INTO reading_progress (book_id, current_page, percentage, last_opened, rsvp_word_index, rsvp_href)
+     VALUES (?, 0, 0, ?, ?, ?)
      ON CONFLICT(book_id) DO UPDATE SET
        rsvp_word_index = excluded.rsvp_word_index,
+       rsvp_href       = excluded.rsvp_href,
        last_opened     = excluded.last_opened`,
-    [bookId, now(), wordIndex]
+    [bookId, now(), wordIndex, wordIndex === null ? null : href]
   );
 }
 

@@ -245,6 +245,10 @@ const MIGRATIONS: string[] = [
   "ALTER TABLE reading_sessions ADD COLUMN words_read INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE reading_sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'page'",
   "ALTER TABLE reading_sessions ADD COLUMN wpm_last REAL",
+  /* Which chapter rsvp_word_index belongs to. A bare index is ambiguous once
+     speed reading can cross chapters: a stale pointer would resume part-way
+     into a different chapter that merely happens to be long enough. */
+  "ALTER TABLE reading_progress ADD COLUMN rsvp_href TEXT",
 ];
 
 async function runMigrations(db: SQLiteDatabase) {
