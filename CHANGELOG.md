@@ -9,11 +9,22 @@ actually read a book in: chapters flow into each other while speed reading,
 every surface follows one theme, and your library shows real covers.
 
 ### Added
-- **Speed reading flows across chapters.** Finishing a chapter now moves the
-  book to the next one and waits at its first word, so a session is no longer
-  capped at one chapter. Sections with no prose (covers, nav pages) are skipped,
-  so you never land on a blank screen, and the last chapter says so instead of
-  silently restarting.
+- **Speed reading flows across chapters.** Finishing a chapter moves the book to
+  the next one, holds its title in the word slot for a beat, and picks up again
+  on its own, so a session is no longer capped at one chapter. Tap during the
+  handoff to stay put. The pause scales with your speed rather than sitting at a
+  fixed two seconds, and the progress bar drains as the countdown so the resume
+  never feels random. Sections with no prose (covers, nav pages) are skipped, so
+  you never land on a blank screen.
+- **Finishing a book is an actual moment.** Reaching the end offers Done or a
+  way back to the last chapter, instead of an alert with a restart button that
+  replayed the chapter you just finished.
+- **Speed reading is measured.** Sessions record words read, mode, and the speed
+  you ended on, kept separate from page-reading sessions.
+- **Accessibility for the chapter handoff.** With a screen reader or reduce
+  motion enabled, the handoff never resumes on a timer and waits for you; the
+  chapter title is announced; the streaming word is hidden from assistive tech
+  while playing, where it changed five times a second.
 - **Closing the speed reader leaves the page where you stopped.** Chapter
   advance moves the book itself, and closing seeks to the paragraph you reached,
   so going back to normal reading picks up from the right place instead of
@@ -60,9 +71,24 @@ every surface follows one theme, and your library shows real covers.
 - The library's swipe actions crashed without a `GestureHandlerRootView` at the
   root; the reader page also sat under the status and navigation bars.
 
+### Fixed (post-review)
+- Closing the speed reader used to wipe the "resume where you left off" pointer,
+  because the seek it performs counted as normal reading. It now survives.
+- Closing while the reader was still finding the next chapter could drop you a
+  chapter ahead of where you actually stopped.
+- Finishing twice in quick succession could start two chapter searches at once
+  and skip a chapter.
+- A book whose remaining sections are all blank no longer leaves you parked on
+  one, and a chapter that fails to render is retried past rather than treated as
+  empty.
+- Chapters nested under parts show their real title during speed reading instead
+  of a blank.
+
 ### Tests
-- 144 tests across 15 suites, including a Playwright web smoke suite and TDD
+- 158 tests across 16 suites, including a Playwright web smoke suite and TDD
   evidence reports under `bookbrain/docs/testing/`.
+- The reader's injected WebView script is now executed under jsdom rather than
+  checked with string matching, which is what let the close/advance race ship.
 
 ## [1.1.0] - 2026-06-24
 
