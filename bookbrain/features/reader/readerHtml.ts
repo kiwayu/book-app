@@ -283,40 +283,19 @@ try{
       totalPages:totalPages,
       chapterPage:disp.page||0,
       chapterPages:disp.total||0,
-      chapter:chapterOf(loc.start.href||"")
+      chapter:chapterOf(loc.start.href||""),
+      /* Identifies WHICH chapter this is, so the native side can invalidate a
+         caret pick that belonged to a different one. */
+      href:loc.start.href||""
     });
   });
 
-  /* Tap/swipe: epub.js does NOT emit rendition touch events, so bind real
-     DOM listeners to each chapter iframe document as it renders. Zones use
-     the iframe's own width (the book text lives inside it). */
-  function zoneAction(x,w){
-    if(x<w*0.3)rendition.prev();
-    else if(x>w*0.7)rendition.next();
-    else post("tap",{});
-  }
-  function wireInput(doc){
-    if(!doc||doc.__bbWired)return;
-    doc.__bbWired=true;
-    var win=doc.defaultView||window,sx=0,sy=0,moved=false;
-    doc.addEventListener("touchstart",function(e){
-      var t=e.changedTouches[0];sx=t.clientX;sy=t.clientY;moved=false;
-    },{passive:true});
-    doc.addEventListener("touchend",function(e){
-      var t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;
-      if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>40){dx>0?rendition.prev():rendition.next();}
-      else if(Math.abs(dx)<12&&Math.abs(dy)<12){moved=true;zoneAction(t.clientX,win.innerWidth);}
-    },{passive:true});
-    /* Non-touch (web/dev): click drives the same zones. Guard so a click
-       synthesized after a touch does not double-fire. */
-    doc.addEventListener("click",function(e){
-      if(moved){moved=false;return;}
-      zoneAction(e.clientX,win.innerWidth);
-    });
-  }
-  rendition.on("rendered",function(section,view){
-    wireInput((view&&view.document)||(view&&view.iframe&&view.iframe.contentDocument));
-  });
+  /* No in-iframe input handling lives here. The native side mounts a
+     full-screen responder over this WebView (see features/reader/tapZones.ts),
+     so no touch or click ever reaches the book document: the overlay is
+     absoluteFill while reading, and the RSVP overlay covers it while speed
+     reading. Listeners bound here would be unreachable code that merely looks
+     live. Gestures have exactly one owner, and it is not this file. */
 
 }catch(err){showError("Failed to load book: "+(err&&err.message||"unknown error"));}
 
@@ -536,9 +515,12 @@ function wordIndexBefore(root,node,offset){
   })(root);
   return count;
 }
-function placeCaret(doc,x,y){
+/* Draw only. Deliberately does NOT compute the word index: wordIndexBefore
+   walks the whole chapter DOM, and during a drag this runs per touch-move
+   event. The index is not needed until the finger lifts. */
+function drawCaret(doc,x,y){
   var rng=caretRange(doc,x,y);
-  if(!rng||!rng.startContainer)return -1;
+  if(!rng||!rng.startContainer)return null;
   try{
     var rect=rng.getBoundingClientRect();
     var win=doc.defaultView||{};
@@ -548,7 +530,7 @@ function placeCaret(doc,x,y){
     el.style.height=((rect.height||18))+"px";
     el.style.display="block";
   }catch(e){}
-  return wordIndexBefore(doc.body,rng.startContainer,rng.startOffset||0);
+  return rng;
 }
 
 /* ── public API ───────────────────────────────────── */
@@ -564,14 +546,27 @@ window.readerApi={
   nextChapter:    nextChapter,
   cancelAdvance:  cancelAdvance,
   goToBlock:      goToBlock,
-  /* Place the caret at a WebView-relative point; posts the word index. */
+  /* Draw the caret at a WebView-relative point. Cheap: call on every move. */
   caretAt:        function(mx,my){
     try{
       var doc=caretDoc();if(!doc)return;
       var ifr=document.querySelector("#viewer iframe");if(!ifr)return;
       var rect=ifr.getBoundingClientRect();
-      var idx=placeCaret(doc,mx-rect.left,my-rect.top);
-      if(idx>=0)post("caret",{wordIndex:idx});
+      drawCaret(doc,mx-rect.left,my-rect.top);
+    }catch(e){}
+  },
+  /* Draw AND resolve the word index, posting it back. Call once, on release:
+     this is the expensive path (a full DOM walk over the chapter). */
+  caretCommit:    function(mx,my){
+    try{
+      var doc=caretDoc();if(!doc)return;
+      var ifr=document.querySelector("#viewer iframe");if(!ifr)return;
+      var rect=ifr.getBoundingClientRect();
+      var rng=drawCaret(doc,mx-rect.left,my-rect.top);
+      if(!rng)return;
+      var idx=wordIndexBefore(doc.body,rng.startContainer,rng.startOffset||0);
+      /* 0 is a real pick (first word of the chapter), so the guard is >= 0. */
+      if(idx>=0)post("caret",{wordIndex:idx,href:currentHref()});
     }catch(e){}
   },
   caretHide:      function(){

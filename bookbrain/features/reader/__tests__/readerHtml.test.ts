@@ -34,12 +34,19 @@ describe("buildReaderHtml — self-contained document", () => {
     expect(html).toContain("getChapterText");
   });
 
-  it("binds tap/swipe to real chapter-document events, not phantom rendition events", () => {
-    // epub.js never emits rendition 'touchstart'/'touchend'; binding there
-    // left every tap dead (2026-07-20 device bug). Must wire per rendered view.
-    expect(html).toContain('rendition.on("rendered"');
-    expect(html).toContain("addEventListener");
+  it("binds no input listeners at all — gestures have one owner, natively", () => {
+    /* History: taps were first bound to phantom `rendition.on("touchstart")`
+       events epub.js never emits (dead on arrival), then to per-view iframe
+       listeners (2026-07-20). Both were unreachable, because the native side
+       mounts a full-screen responder over this WebView. The invariant now is
+       that this document handles no input whatsoever — see tapZones.ts. */
     expect(html).not.toContain('rendition.on("touchstart"');
+    expect(html).not.toContain('rendition.on("rendered"');
+    expect(html).not.toContain("wireInput");
+    expect(html).not.toContain("zoneAction");
+    /* Deliberately NOT asserting on `addEventListener` generally: the inlined
+       epub.js binds plenty of its own. Only our identifiers are checkable from
+       a string, which is why behaviour lives in readerApi.jsdom.test.ts. */
   });
 
   it("reports chapter-relative page position for the progress footer", () => {

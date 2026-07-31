@@ -37,7 +37,12 @@ import { loadPrefs, savePrefs } from "@/services/preferences";
 import { getSetting } from "@/services/settings";
 import RsvpOverlay from "./rsvp/RsvpOverlay";
 import { tokenizeParagraphs, type Token } from "./rsvp/engine";
-import { tapZone } from "./tapZones";
+import { classifyGesture, SWIPE_MIN } from "./tapZones";
+import {
+  nextCaretState,
+  startIndexFor,
+  type CaretState,
+} from "./caretState";
 import {
   addHighlight,
   getHighlightsForBook,
@@ -166,10 +171,30 @@ export default function ReaderScreen({
   const htmlRef         = useRef<string | null>(null);
   const coverTriedRef   = useRef(false);
   const rsvpMarkerRef   = useRef(false); // next currentCfi drops a speed-read marker
-  const caretStartIdxRef = useRef(0);    // word index chosen via the on-page caret
+  /* Where speed reading should start, and whether that choice is still valid.
+     Lifecycle lives in caretState.ts so it can be tested; this ref is just
+     the current value. */
+  const caretRef        = useRef<CaretState>(null);
   const caretTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const caretActiveRef  = useRef(false);
-  const caretGrantRef   = useRef<{ x: number; y: number } | null>(null);
+
+  /* ── gesture phase machine ──────────────────────────
+     One phase instead of a pile of booleans. The bug this replaces existed
+     because release could not see what move had decided.
+
+                        ┌──────────┐
+          touch down    │          │   release (no travel)
+       ┌───────────────▶│ TRACKING │──────────────▶ score from ORIGIN
+       │                └────┬─────┘                (classifyGesture)
+    ┌──┴───┐                 │
+    │ IDLE │◀────┐   400ms held without moving ──▶ ┌────────┐
+    └──────┘     │                                 │ CARET  │──▶ commit index
+       ▲         │   |dx| > SWIPE_MIN ───────────▶ ┌────────┐
+       │         │   and |dx| > |dy|               │SWIPING │──▶ direction wins
+       │         └─────────────────────────────────└────────┘
+       └── terminate, or a second finger at any point → abort, no action    */
+  const phaseRef        = useRef<"idle" | "tracking" | "swiping" | "caret">("idle");
+  const originRef       = useRef<{ x: number; y: number } | null>(null);
+  const multiTouchRef   = useRef(false);
 
   const [htmlReady,     setHtmlReady]     = useState(false);
   /* file:// URI of the written reader HTML when the book is a local file
@@ -368,6 +393,15 @@ export default function ReaderScreen({
       clearTimeout(hideTimerRef.current);
       hideTimerRef.current = null;
     }
+  }, []);
+
+  /* Every gesture ends here, including interrupted ones. Clearing the origin
+     matters: after this change it decides which page turn fires, so a stale
+     one from an aborted touch would score the next gesture. */
+  const resetGesture = useCallback(() => {
+    phaseRef.current = "idle";
+    originRef.current = null;
+    multiTouchRef.current = false;
   }, []);
 
   const showAndReset = useCallback(() => {
@@ -602,8 +636,13 @@ export default function ReaderScreen({
             showAndReset();
             break;
           case "caret":
-            caretStartIdxRef.current =
-              typeof msg.wordIndex === "number" ? msg.wordIndex : 0;
+            if (typeof msg.wordIndex === "number") {
+              caretRef.current = nextCaretState(caretRef.current, {
+                type: "placed",
+                index: msg.wordIndex,
+                href: msg.href ?? null,
+              });
+            }
             break;
           case "tocLoaded":
             setToc(msg.toc ?? []);
@@ -617,6 +656,12 @@ export default function ReaderScreen({
             setChapterPage(msg.chapterPage ?? 0);
             setChapterPages(msg.chapterPages ?? 0);
             setChapter(msg.chapter ?? "");
+            /* A caret picked in another chapter is meaningless here. Without
+               this, an abandoned pick silently hijacked the next RSVP open. */
+            caretRef.current = nextCaretState(caretRef.current, {
+              type: "chapterChanged",
+              href: msg.href ?? null,
+            });
             if (startPageRef.current === 0 && msg.currentPage > 0) {
               startPageRef.current = msg.currentPage;
             }
@@ -693,14 +738,26 @@ export default function ReaderScreen({
             }
             // A normal open holds nothing: the reader chose to be here.
             setRsvpIntro(undefined);
-            // If a caret start word was chosen, begin there (no resume prompt).
-            const caretStart = caretStartIdxRef.current;
-            if (caretStart > 0 && tokens.length > 0) {
-              caretStartIdxRef.current = 0;
-              rsvpStartIdxRef.current = Math.min(caretStart, tokens.length - 1);
+            /* If a caret start word was chosen for THIS chapter, begin there
+               and skip the resume prompt. Word 0 is a legitimate pick, so the
+               "was anything chosen" question is answered by null, not by 0. */
+            const caretStart = startIndexFor(
+              caretRef.current,
+              msg.href ?? null,
+              tokens.length
+            );
+            if (caretStart !== null) {
+              caretRef.current = nextCaretState(caretRef.current, {
+                type: "consumed",
+              });
+              rsvpStartIdxRef.current = caretStart;
               setShowRsvp(true);
               break;
             }
+            // A pick that did not apply here is spent, not carried forward.
+            caretRef.current = nextCaretState(caretRef.current, {
+              type: "abandoned",
+            });
             /* Resume only if the pointer belongs to THIS chapter and still
                lands inside it. Matching on length alone would happily resume
                40% into a different chapter that happened to be long enough. */
@@ -805,39 +862,69 @@ export default function ReaderScreen({
           onStartShouldSetResponder={() => true}
           onMoveShouldSetResponder={() => true}
           onResponderGrant={(e) => {
-            const { locationX, locationY } = e.nativeEvent;
-            caretGrantRef.current = { x: locationX, y: locationY };
-            caretActiveRef.current = false;
+            const { locationX, locationY, touches } = e.nativeEvent;
+            phaseRef.current = "tracking";
+            originRef.current = { x: locationX, y: locationY };
+            multiTouchRef.current = (touches?.length ?? 1) > 1;
             if (caretTimerRef.current) clearTimeout(caretTimerRef.current);
             caretTimerRef.current = setTimeout(() => {
-              caretActiveRef.current = true;
+              phaseRef.current = "caret";
               inject(`window.readerApi.caretAt(${locationX}, ${locationY - insets.top})`);
             }, 400);
           }}
           onResponderMove={(e) => {
-            const { locationX, locationY } = e.nativeEvent;
-            if (caretActiveRef.current) {
+            const { locationX, locationY, touches } = e.nativeEvent;
+            // Two fingers means the release position belongs to a different
+            // finger than the origin, so the delta is meaningless. Latch it.
+            if ((touches?.length ?? 1) > 1) multiTouchRef.current = true;
+
+            if (phaseRef.current === "caret") {
+              // Draw only — the word index is resolved once, on release.
               inject(`window.readerApi.caretAt(${locationX}, ${locationY - insets.top})`);
-            } else if (caretGrantRef.current) {
-              const dx = Math.abs(locationX - caretGrantRef.current.x);
-              const dy = Math.abs(locationY - caretGrantRef.current.y);
-              if ((dx > 10 || dy > 10) && caretTimerRef.current) {
-                clearTimeout(caretTimerRef.current); // moved first → not a long-press
-              }
+              return;
+            }
+            const origin = originRef.current;
+            if (!origin) return;
+            const dx = locationX - origin.x;
+            const dy = locationY - origin.y;
+            if (Math.abs(dx) > SWIPE_MIN && Math.abs(dx) > Math.abs(dy)) {
+              phaseRef.current = "swiping";
+            }
+            if ((Math.abs(dx) > 10 || Math.abs(dy) > 10) && caretTimerRef.current) {
+              clearTimeout(caretTimerRef.current); // moved first → not a long-press
+              caretTimerRef.current = null;
             }
           }}
           onResponderRelease={(e) => {
+            const { locationX, locationY } = e.nativeEvent;
             if (caretTimerRef.current) clearTimeout(caretTimerRef.current);
-            if (caretActiveRef.current) { caretActiveRef.current = false; return; }
-            const zone = tapZone(e.nativeEvent.locationX, winWidth);
-            if (zone === "prev") prevPage();
-            else if (zone === "next") nextPage();
-            else if (showControls) setShowControls(false);
-            else showAndReset();
+            caretTimerRef.current = null;
+
+            if (phaseRef.current === "caret") {
+              // Resolve the word index now, once, rather than per move event.
+              inject(`window.readerApi.caretCommit(${locationX}, ${locationY - insets.top})`);
+              resetGesture();
+              return;
+            }
+            const action = classifyGesture(
+              originRef.current,
+              { x: locationX, y: locationY },
+              winWidth,
+              multiTouchRef.current
+            );
+            resetGesture();
+            if (action === "prev") prevPage();
+            else if (action === "next") nextPage();
+            else if (action === "menu") {
+              if (showControls) setShowControls(false);
+              else showAndReset();
+            }
+            // "none" → a multi-touch gesture; deliberately do nothing.
           }}
           onResponderTerminate={() => {
             if (caretTimerRef.current) clearTimeout(caretTimerRef.current);
-            caretActiveRef.current = false;
+            caretTimerRef.current = null;
+            resetGesture();
           }}
         />
       )}
