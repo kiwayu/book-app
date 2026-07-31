@@ -49,6 +49,26 @@ describe("initializeDatabase — fresh install", () => {
     expect(columnNames(db, "reading_progress")).toContain("rsvp_word_index");
   });
 
+  /* runMigrations swallows every DDL error so re-running is safe, which also
+     means a typo'd ALTER fails silently forever. Assert the columns exist. */
+  it("adds the speed-reading telemetry columns to reading_sessions", () => {
+    const cols = columnNames(db, "reading_sessions");
+    expect(cols).toEqual(
+      expect.arrayContaining(["words_read", "mode", "wpm_last"])
+    );
+  });
+
+  it("defaults existing sessions to page mode, not rsvp", () => {
+    db.exec(
+      `INSERT INTO books (id, title) VALUES (1, 'B');
+       INSERT INTO reading_sessions (book_id, start_time) VALUES (1, '2026-07-31T09:00:00.000Z')`
+    );
+    const row = db
+      .prepare("SELECT mode, words_read, wpm_last FROM reading_sessions")
+      .get() as { mode: string; words_read: number; wpm_last: number | null };
+    expect(row).toEqual({ mode: "page", words_read: 0, wpm_last: null });
+  });
+
   it("is idempotent — running init twice changes nothing", async () => {
     await expect(initializeDatabase(shim(db))).resolves.toBeUndefined();
   });
