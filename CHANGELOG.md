@@ -86,7 +86,7 @@ every surface follows one theme, and your library shows real covers.
 
 ### Tests
 - 158 tests across 16 suites, including a Playwright web smoke suite and TDD
-  evidence reports under `bookbrain/docs/testing/`.
+  evidence reports under `GlyphQ/docs/testing/`.
 - The reader's injected WebView script is now executed under jsdom rather than
   checked with string matching, which is what let the close/advance race ship.
 

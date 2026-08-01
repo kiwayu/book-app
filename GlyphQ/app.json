@@ -1,18 +1,18 @@
 {
   "expo": {
-    "name": "bookbrain",
-    "slug": "bookbrain",
+    "name": "GlyphQ",
+    "slug": "glyphq",
     "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "bookbrain",
+    "scheme": "glyphq",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true
     },
     "android": {
-      "package": "com.bookbrain.app",
+      "package": "com.glyphq.app",
       "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -27,8 +27,8 @@
       "output": "static",
       "bundler": "metro",
       "favicon": "./assets/images/favicon.png",
-      "name": "BookBrain",
-      "shortName": "BookBrain",
+      "name": "GlyphQ",
+      "shortName": "GlyphQ",
       "description": "Track your reading, manage your library, and discover insights about your reading habits.",
       "backgroundColor": "#EEF5FF",
       "themeColor": "#5a9dd4",

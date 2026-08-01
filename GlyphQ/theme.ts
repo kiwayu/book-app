@@ -1,7 +1,7 @@
 import { Platform, DevSettings, type TextStyle } from "react-native";
 
 /* ══════════════════════════════════════════════════════
-   Design Tokens — BookBrain
+   Design Tokens — GlyphQ
    ──────────────────────────────────────────────────────
    A named-theme registry. Each theme is a small SEED
    (bg / surface / text / sub / accent + dark flag); the
@@ -234,16 +234,32 @@ export type Theme = ReturnType<typeof makeTheme>;
 
 /* ── Persistence (synchronous, so styles pick it up at load) ── */
 
-const THEME_DB = "bookbrain-theme.db";
+const THEME_DB = "glyphq-theme.db";
+/** Pre-rebrand filename; read once as a fallback so the chosen theme survives. */
+const LEGACY_THEME_DB = "bookbrain-theme.db";
 
+function readFrom(name: string): ThemeId | null {
+  const SQLite = require("expo-sqlite");
+  const db = SQLite.openDatabaseSync(name);
+  db.execSync("CREATE TABLE IF NOT EXISTS pref (k TEXT PRIMARY KEY, v TEXT)");
+  const row = db.getFirstSync("SELECT v FROM pref WHERE k = 'mode'");
+  const id = row && row.v;
+  return id && THEME_SEEDS[id] ? id : null;
+}
+
+/* Runs at module load, before React, so it must stay synchronous — which rules
+   out moving the file the way db/database.ts does. Falling back to a read of
+   the old database is equivalent from the user's point of view: the next
+   setThemeId() writes to the new one, and the stale file is harmless. */
 function readThemeId(): ThemeId {
   try {
-    const SQLite = require("expo-sqlite");
-    const db = SQLite.openDatabaseSync(THEME_DB);
-    db.execSync("CREATE TABLE IF NOT EXISTS pref (k TEXT PRIMARY KEY, v TEXT)");
-    const row = db.getFirstSync("SELECT v FROM pref WHERE k = 'mode'");
-    const id = row && row.v;
-    return id && THEME_SEEDS[id] ? id : "light";
+    const current = readFrom(THEME_DB);
+    if (current) return current;
+  } catch {
+    /* fall through to the legacy read */
+  }
+  try {
+    return readFrom(LEGACY_THEME_DB) ?? "light";
   } catch {
     return "light";
   }

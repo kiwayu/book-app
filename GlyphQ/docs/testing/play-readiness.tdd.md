@@ -19,7 +19,7 @@ a Play-format AAB.
 
 ## What changed (GREEN)
 
-- `app.json`: added `android.package = "com.bookbrain.app"`,
+- `app.json`: added `android.package = "com.glyphq.app"`,
   `android.versionCode = 1`, set `version = "1.1.0"` to match `package.json`.
 - `eas.json`: added `production` profile building an **app-bundle (AAB)** with
   `autoIncrement`, plus `preview` (APK) and `development` profiles;
@@ -79,5 +79,5 @@ eas submit -p android --latest              # uploads to Play (after console set
 
 ## Known gap
 
-`com.bookbrain.app` is a chosen default and is **permanent once published** —
+`com.glyphq.app` is a chosen default and is **permanent once published** —
 confirm or change it before the first Play upload.

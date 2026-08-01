@@ -321,12 +321,12 @@ export default function SettingsTab() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "bookbrain_export.json";
+        a.download = "glyphq_export.json";
         a.click();
         URL.revokeObjectURL(url);
         return;
       }
-      const filePath = `${Paths.cache}/bookbrain_export.json`;
+      const filePath = `${Paths.cache}/glyphq_export.json`;
       await writeAsStringAsync(filePath, json);
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
@@ -347,12 +347,12 @@ export default function SettingsTab() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "bookbrain_export.csv";
+        a.download = "glyphq_export.csv";
         a.click();
         URL.revokeObjectURL(url);
         return;
       }
-      const filePath = `${Paths.cache}/bookbrain_export.csv`;
+      const filePath = `${Paths.cache}/glyphq_export.csv`;
       await writeAsStringAsync(filePath, csv);
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
@@ -703,7 +703,7 @@ export default function SettingsTab() {
         </Section>
 
         <Text style={s.footer}>
-          BookBrain {"\u00b7"} Built with Expo & React Native
+          GlyphQ {"\u00b7"} Built with Expo & React Native
         </Text>
       </ScrollView>
 

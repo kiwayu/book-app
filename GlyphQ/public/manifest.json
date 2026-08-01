@@ -1,6 +1,6 @@
 {
-  "name": "BookBrain",
-  "short_name": "BookBrain",
+  "name": "GlyphQ",
+  "short_name": "GlyphQ",
   "description": "Track your reading, manage your library, and discover insights about your reading habits.",
   "start_url": "/",
   "display": "standalone",

@@ -9,7 +9,7 @@ I had been fixing the **in-reader epub theme**. The user was on the **Settings t
 ## Approach
 
 - `theme.ts` now defines **light + dark palettes** and a pure `makeTheme(mode)` that builds the full token set (colour/font/glass/shadow) for a mode.
-- The active mode is **persisted** (expo-sqlite `bookbrain-theme.db`, `pref(k,v)`) and read **synchronously at module load**, so `t` is built for the saved mode before any style is created.
+- The active mode is **persisted** (expo-sqlite `glyphq-theme.db`, `pref(k,v)`) and read **synchronously at module load**, so `t` is built for the saved mode before any style is created.
 - `setThemeMode(mode)` persists the choice and **reloads the app** (`DevSettings.reload`), so every module-level `StyleSheet` rebuilds in the new palette. This is the low-risk way to flip 20 files of static styles without rewriting them all.
 - Settings tab gains an **Appearance** section (Light / Dark) at the top.
 - The **reader** opens in a theme matching the app mode (dark app → dark pages).

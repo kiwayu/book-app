@@ -1,4 +1,4 @@
-# BookBrain
+# GlyphQ
 
 [![Expo](https://img.shields.io/badge/Expo-54.0.33-black?logo=expo)](https://expo.dev)
 [![React Native](https://img.shields.io/badge/React%20Native-0.81.5-61DAFB?logo=react)](https://reactnative.dev)
@@ -67,13 +67,13 @@ A React Native app for reading your own books and keeping track of where you are
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/book-app.git
-cd book-app
+git clone https://github.com/kiwayu/GlyphQ.git
+cd GlyphQ
 ```
 
 2. Install dependencies:
 ```bash
-cd bookbrain
+cd GlyphQ
 npm install
 ```
 
@@ -98,7 +98,7 @@ npm start          # Start development server
 npm run android    # Start on Android Emulator
 npm run ios        # Start on iOS Simulator
 npm run web        # Start web version
-npm test           # Run the Jest suite (15 suites, 144 tests)
+npm test           # Run the Jest suite (17 suites, 180 tests)
 npm run test:e2e   # Run the Playwright web smoke suite
 npm run lint       # Run ESLint for code quality checks
 npx tsc --noEmit   # Typecheck without emitting
@@ -108,7 +108,7 @@ npm run reset-project  # Reset to starter template
 ## Project Structure
 
 ```
-bookbrain/
+GlyphQ/
 ├── app/                     # Expo Router page routes and navigation
 ├── components/
 │   ├── ui/                 # Reusable UI components (GlassCard, BookCard, etc.)
@@ -144,7 +144,7 @@ list and the seek target are built from the same block filter.
 
 ## Design System
 
-BookBrain uses a cohesive, modern design system:
+GlyphQ uses a cohesive, modern design system:
 
 ### Color Palette
 - **Primary**: `#5a9dd4` (accent blue)

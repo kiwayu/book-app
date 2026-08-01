@@ -1,4 +1,4 @@
-# bookbrain
+# GlyphQ
 
 The Expo app itself. Project overview, feature list, and design system live in
 the [repo README](../README.md); this file covers running and testing the app.
