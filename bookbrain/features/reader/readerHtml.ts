@@ -123,11 +123,21 @@ function showError(msg){
 }
 
 /* ── chapter title resolver ───────────────────────── */
+/* Populated from the flattened nav tree once navigation loads. Searching the
+   flat list matters: epubs nest chapters under parts, and a top-level-only
+   scan returns "" for every nested chapter — which is most of them in a book
+   that has parts at all. */
+var flatToc=[];
 function chapterOf(href){
+  if(!href)return"";
+  for(var i=0;i<flatToc.length;i++){
+    if(flatToc[i].href&&flatToc[i].href.indexOf(href)!==-1)return flatToc[i].label;
+  }
+  // Nav tree not loaded yet: fall back to the raw top-level list.
   if(!book||!book.navigation||!book.navigation.toc)return"";
   var toc=book.navigation.toc;
-  for(var i=0;i<toc.length;i++){
-    if(toc[i].href&&toc[i].href.indexOf(href)!==-1)return toc[i].label.trim();
+  for(var j=0;j<toc.length;j++){
+    if(toc[j].href&&toc[j].href.indexOf(href)!==-1)return(toc[j].label||"").trim();
   }
   return"";
 }
@@ -254,7 +264,8 @@ try{
   }
   book.loaded.navigation
     .then(function(nav){
-      post("tocLoaded",{toc:flattenToc(nav.toc||[],0,[])});
+      flatToc=flattenToc(nav.toc||[],0,[]);   // also feeds chapterOf()
+      post("tocLoaded",{toc:flatToc});
     }).catch(function(){});
 
   rendition.on("relocated",function(loc){
@@ -272,40 +283,19 @@ try{
       totalPages:totalPages,
       chapterPage:disp.page||0,
       chapterPages:disp.total||0,
-      chapter:chapterOf(loc.start.href||"")
+      chapter:chapterOf(loc.start.href||""),
+      /* Identifies WHICH chapter this is, so the native side can invalidate a
+         caret pick that belonged to a different one. */
+      href:loc.start.href||""
     });
   });
 
-  /* Tap/swipe: epub.js does NOT emit rendition touch events, so bind real
-     DOM listeners to each chapter iframe document as it renders. Zones use
-     the iframe's own width (the book text lives inside it). */
-  function zoneAction(x,w){
-    if(x<w*0.3)rendition.prev();
-    else if(x>w*0.7)rendition.next();
-    else post("tap",{});
-  }
-  function wireInput(doc){
-    if(!doc||doc.__bbWired)return;
-    doc.__bbWired=true;
-    var win=doc.defaultView||window,sx=0,sy=0,moved=false;
-    doc.addEventListener("touchstart",function(e){
-      var t=e.changedTouches[0];sx=t.clientX;sy=t.clientY;moved=false;
-    },{passive:true});
-    doc.addEventListener("touchend",function(e){
-      var t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;
-      if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>40){dx>0?rendition.prev():rendition.next();}
-      else if(Math.abs(dx)<12&&Math.abs(dy)<12){moved=true;zoneAction(t.clientX,win.innerWidth);}
-    },{passive:true});
-    /* Non-touch (web/dev): click drives the same zones. Guard so a click
-       synthesized after a touch does not double-fire. */
-    doc.addEventListener("click",function(e){
-      if(moved){moved=false;return;}
-      zoneAction(e.clientX,win.innerWidth);
-    });
-  }
-  rendition.on("rendered",function(section,view){
-    wireInput((view&&view.document)||(view&&view.iframe&&view.iframe.contentDocument));
-  });
+  /* No in-iframe input handling lives here. The native side mounts a
+     full-screen responder over this WebView (see features/reader/tapZones.ts),
+     so no touch or click ever reaches the book document: the overlay is
+     absoluteFill while reading, and the RSVP overlay covers it while speed
+     reading. Listeners bound here would be unreachable code that merely looks
+     live. Gestures have exactly one owner, and it is not this file. */
 
 }catch(err){showError("Failed to load book: "+(err&&err.message||"unknown error"));}
 
@@ -331,14 +321,27 @@ function currentDocs(){
   }
   return docs;
 }
+var BLOCK_SEL="p,li,blockquote,h1,h2,h3,h4,h5,h6";
+/* Blocks that actually carry text, in reading order. The RSVP token stream is
+   built from exactly this list, so token.paragraphIndex indexes straight back
+   into it — that is what lets goToBlock() land the page on the stopping word.
+   Empty spacer blocks must stay skipped in BOTH places or the mapping drifts. */
+function textBlocks(doc){
+  var out=[];
+  if(!doc||!doc.body)return out;
+  var blocks=doc.body.querySelectorAll(BLOCK_SEL);
+  for(var i=0;i<blocks.length;i++){
+    if((blocks[i].textContent||"").replace(/\\s+/g," ").trim())out.push(blocks[i]);
+  }
+  return out;
+}
 function collectParagraphs(doc){
   var out=[];
   if(!doc||!doc.body)return out;
-  var blocks=doc.body.querySelectorAll("p,li,blockquote,h1,h2,h3,h4,h5,h6");
-  if(blocks&&blocks.length){
+  var blocks=textBlocks(doc);
+  if(blocks.length){
     for(var i=0;i<blocks.length;i++){
-      var txt=(blocks[i].textContent||"").replace(/\\s+/g," ").trim();
-      if(txt)out.push(txt);
+      out.push((blocks[i].textContent||"").replace(/\\s+/g," ").trim());
     }
   }else{
     var body=(doc.body.textContent||"").replace(/\\r/g,"");
@@ -350,16 +353,116 @@ function collectParagraphs(doc){
   }
   return out;
 }
+function chapterParagraphs(){
+  var paras=[],docs=currentDocs();
+  for(var i=0;i<docs.length;i++){
+    var got=collectParagraphs(docs[i]);
+    for(var k=0;k<got.length;k++)paras.push(got[k]);
+  }
+  return paras;
+}
+function currentHref(){
+  return (rendition&&rendition.location&&rendition.location.start&&rendition.location.start.href)||"";
+}
 function getChapterText(){
   try{
-    var paras=[],docs=currentDocs();
-    for(var i=0;i<docs.length;i++){
-      var got=collectParagraphs(docs[i]);
-      for(var k=0;k<got.length;k++)paras.push(got[k]);
+    var h=currentHref();
+    /* href identifies WHICH chapter these tokens are: a resume pointer without
+       it can land part-way into a different, merely-long-enough chapter. */
+    post("chapterText",{paragraphs:chapterParagraphs(),chapter:chapterOf(h),href:h});
+  }catch(e){post("chapterText",{paragraphs:[],chapter:"",href:""});}
+}
+
+/* Auto-advance when speed reading finishes a chapter: actually navigate the
+   book to the next spine section with text, then hand its paragraphs back.
+   Moving the rendition (rather than reading ahead invisibly) is what keeps the
+   page underneath correct when the overlay is closed. Sections with no text —
+   covers, nav pages — are skipped, so the reader never lands on a blank one. */
+/* Generation counter: closing the overlay bumps it, so an advance already in
+   flight goes quiet instead of racing the close and dragging the page forward
+   a chapter. Every async continuation re-checks it before touching anything. */
+var advGen=0;
+/* A rendition that fails systematically would otherwise walk the entire spine,
+   one real display() per section. Bound the skip run. */
+var MAX_SKIP=20;
+
+function nextChapter(){
+  var gen=++advGen;
+  var startHref=currentHref();
+  function alive(){return gen===advGen;}
+  function stop(){
+    // Nothing further to read: put the book back where the walk started rather
+    // than leaving it parked on whatever blank section we stopped at.
+    if(!alive())return;
+    if(startHref){try{rendition.display(startHref);}catch(e){}}
+    post("chapterText",{paragraphs:[],chapter:"",endOfBook:true});
+  }
+  if(!book||!rendition||!book.spine){stop();return;}
+  var cur=null;
+  try{cur=book.spine.get(startHref);}catch(e){}
+  if(!cur||typeof cur.index!=="number"){stop();return;}
+  function step(n,skipped){
+    if(!alive())return;
+    if(skipped>=MAX_SKIP){stop();return;}
+    var sec=null;
+    try{sec=book.spine.get(n);}catch(e){}
+    if(!sec){stop();return;}
+    rendition.display(sec.href).then(function(){
+      if(!alive())return;
+      var paras=chapterParagraphs();
+      if(!paras.length){step(n+1,skipped+1);return;}
+      repaintContents();
+      post("chapterText",{
+        paragraphs:paras,
+        chapter:chapterOf(sec.href),
+        href:sec.href,
+        spineIndex:n,
+        advanced:true
+      });
+    }).catch(function(){
+      // A rejected display is a failure, not an empty chapter. Keep walking,
+      // but it counts against the skip budget so we cannot loop the book.
+      step(n+1,skipped+1);
+    });
+  }
+  step(cur.index+1,0);
+}
+
+/* Called before the overlay closes: invalidates any in-flight advance so the
+   close-time seek is the last navigation to win. */
+function cancelAdvance(){advGen++;}
+
+/* Move the page to the Nth text block of the current chapter — where speed
+   reading stopped (RSVP tokens carry that index). Posts currentCfi afterwards
+   so the caller can drop its marker on the page the reader actually landed on,
+   not the stale one it was showing while the overlay was up. */
+function goToBlock(n){
+  function fallback(){post("currentCfi",{cfi:currentCfi});}
+  try{
+    var cs=rendition&&rendition.getContents&&rendition.getContents();
+    if(cs&&cs.document)cs=[cs];
+    if(!cs||!cs.length){fallback();return;}
+    /* paragraphIndex is minted over the CONCATENATION of every doc in
+       chapterParagraphs(), so consume it the same way: walk the docs in order,
+       subtracting each one's block count, instead of clamping into doc 0. */
+    var idx=Math.max(0,n),c=null,el=null;
+    for(var i=0;i<cs.length;i++){
+      if(!cs[i]||!cs[i].document)continue;
+      var blocks=textBlocks(cs[i].document);
+      if(!blocks.length)continue;
+      if(idx<blocks.length){c=cs[i];el=blocks[idx];break;}
+      idx-=blocks.length;
+      c=cs[i];el=blocks[blocks.length-1];   // past the end → last block seen
     }
-    var href=(rendition&&rendition.location&&rendition.location.start&&rendition.location.start.href)||"";
-    post("chapterText",{paragraphs:paras,chapter:chapterOf(href)});
-  }catch(e){post("chapterText",{paragraphs:[],chapter:""});}
+    if(!c||!el||!c.cfiFromNode){fallback();return;}
+    var cfi=c.cfiFromNode(el);
+    if(!cfi){fallback();return;}
+    /* Post the CFI we computed, not currentCfi: relocated is not guaranteed to
+       have run, and the marker must land on the block we asked for. */
+    rendition.display(cfi)
+      .then(function(){post("currentCfi",{cfi:cfi});})
+      .catch(fallback);
+  }catch(e){fallback();}
 }
 
 /* ── caret (pick RSVP start word) ──────────────────────
@@ -412,9 +515,12 @@ function wordIndexBefore(root,node,offset){
   })(root);
   return count;
 }
-function placeCaret(doc,x,y){
+/* Draw only. Deliberately does NOT compute the word index: wordIndexBefore
+   walks the whole chapter DOM, and during a drag this runs per touch-move
+   event. The index is not needed until the finger lifts. */
+function drawCaret(doc,x,y){
   var rng=caretRange(doc,x,y);
-  if(!rng||!rng.startContainer)return -1;
+  if(!rng||!rng.startContainer)return null;
   try{
     var rect=rng.getBoundingClientRect();
     var win=doc.defaultView||{};
@@ -424,7 +530,7 @@ function placeCaret(doc,x,y){
     el.style.height=((rect.height||18))+"px";
     el.style.display="block";
   }catch(e){}
-  return wordIndexBefore(doc.body,rng.startContainer,rng.startOffset||0);
+  return rng;
 }
 
 /* ── public API ───────────────────────────────────── */
@@ -433,17 +539,34 @@ window.readerApi={
   prevPage:       function(){if(rendition)rendition.prev();},
   goToChapter:    function(href){if(rendition)rendition.display(href);},
   goToCfi:        function(cfi){if(rendition)rendition.display(cfi);},
+  getCurrentCfi:  function(){post("currentCfi",{cfi:currentCfi});},
   goToPercentage: function(p){if(rendition&&book&&book.locations){var c=book.locations.cfiFromPercentage(Math.max(0,Math.min(1,p)));if(c)rendition.display(c);}},
   applySettings:  applySettings,
   getChapterText: getChapterText,
-  /* Place the caret at a WebView-relative point; posts the word index. */
+  nextChapter:    nextChapter,
+  cancelAdvance:  cancelAdvance,
+  goToBlock:      goToBlock,
+  /* Draw the caret at a WebView-relative point. Cheap: call on every move. */
   caretAt:        function(mx,my){
     try{
       var doc=caretDoc();if(!doc)return;
       var ifr=document.querySelector("#viewer iframe");if(!ifr)return;
       var rect=ifr.getBoundingClientRect();
-      var idx=placeCaret(doc,mx-rect.left,my-rect.top);
-      if(idx>=0)post("caret",{wordIndex:idx});
+      drawCaret(doc,mx-rect.left,my-rect.top);
+    }catch(e){}
+  },
+  /* Draw AND resolve the word index, posting it back. Call once, on release:
+     this is the expensive path (a full DOM walk over the chapter). */
+  caretCommit:    function(mx,my){
+    try{
+      var doc=caretDoc();if(!doc)return;
+      var ifr=document.querySelector("#viewer iframe");if(!ifr)return;
+      var rect=ifr.getBoundingClientRect();
+      var rng=drawCaret(doc,mx-rect.left,my-rect.top);
+      if(!rng)return;
+      var idx=wordIndexBefore(doc.body,rng.startContainer,rng.startOffset||0);
+      /* 0 is a real pick (first word of the chapter), so the guard is >= 0. */
+      if(idx>=0)post("caret",{wordIndex:idx,href:currentHref()});
     }catch(e){}
   },
   caretHide:      function(){

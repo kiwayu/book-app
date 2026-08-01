@@ -37,7 +37,12 @@ import { loadPrefs, savePrefs } from "@/services/preferences";
 import { getSetting } from "@/services/settings";
 import RsvpOverlay from "./rsvp/RsvpOverlay";
 import { tokenizeParagraphs, type Token } from "./rsvp/engine";
-import { tapZone } from "./tapZones";
+import { classifyGesture, SWIPE_MIN } from "./tapZones";
+import {
+  nextCaretState,
+  startIndexFor,
+  type CaretState,
+} from "./caretState";
 import {
   addHighlight,
   getHighlightsForBook,
@@ -166,10 +171,30 @@ export default function ReaderScreen({
   const htmlRef         = useRef<string | null>(null);
   const coverTriedRef   = useRef(false);
   const rsvpMarkerRef   = useRef(false); // next currentCfi drops a speed-read marker
-  const caretStartIdxRef = useRef(0);    // word index chosen via the on-page caret
+  /* Where speed reading should start, and whether that choice is still valid.
+     Lifecycle lives in caretState.ts so it can be tested; this ref is just
+     the current value. */
+  const caretRef        = useRef<CaretState>(null);
   const caretTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const caretActiveRef  = useRef(false);
-  const caretGrantRef   = useRef<{ x: number; y: number } | null>(null);
+
+  /* ── gesture phase machine ──────────────────────────
+     One phase instead of a pile of booleans. The bug this replaces existed
+     because release could not see what move had decided.
+
+                        ┌──────────┐
+          touch down    │          │   release (no travel)
+       ┌───────────────▶│ TRACKING │──────────────▶ score from ORIGIN
+       │                └────┬─────┘                (classifyGesture)
+    ┌──┴───┐                 │
+    │ IDLE │◀────┐   400ms held without moving ──▶ ┌────────┐
+    └──────┘     │                                 │ CARET  │──▶ commit index
+       ▲         │   |dx| > SWIPE_MIN ───────────▶ ┌────────┐
+       │         │   and |dx| > |dy|               │SWIPING │──▶ direction wins
+       │         └─────────────────────────────────└────────┘
+       └── terminate, or a second finger at any point → abort, no action    */
+  const phaseRef        = useRef<"idle" | "tracking" | "swiping" | "caret">("idle");
+  const originRef       = useRef<{ x: number; y: number } | null>(null);
+  const multiTouchRef   = useRef(false);
 
   const [htmlReady,     setHtmlReady]     = useState(false);
   /* file:// URI of the written reader HTML when the book is a local file
@@ -207,6 +232,31 @@ export default function ReaderScreen({
   const [rsvpChapter,   setRsvpChapter]   = useState("");
   const [rsvpWpm,       setRsvpWpm]       = useState(300);
   const rsvpStartIdxRef = useRef(0);
+  /* Bumped per chapter load so the overlay remounts: a fresh mount is exactly
+     "paused at word 0 of the new chapter" with no extra reset plumbing. */
+  const [rsvpEpoch,     setRsvpEpoch]     = useState(0);
+  /* Mirrors showRsvp for the message handler and the progress writer, which
+     both run outside React's render and would otherwise read a stale value. */
+  const showRsvpRef     = useRef(false);
+  /* Set when the current tokens arrived from an advance: the overlay holds this
+     label in the word slot, then resumes on its own. Cleared on a normal open. */
+  const [rsvpIntro,     setRsvpIntro]     = useState<string | undefined>();
+  const [rsvpAdvancing, setRsvpAdvancing] = useState(false);
+  const [rsvpEndOfBook, setRsvpEndOfBook] = useState(false);
+  /* True from close until the close-time seek reports back. The seek is a real
+     navigation, so progress writes during it must not clear the resume pointer. */
+  const rsvpSeekingRef  = useRef(false);
+  /* Guards against a second nextChapter() while one is still walking the spine
+     (the overlay stays interactive during the async window). */
+  const advancingRef    = useRef(false);
+  /* Words streamed this session, accumulated ACROSS chapter advances — the
+     per-chapter token array is discarded on every advance. */
+  const rsvpWordsRef    = useRef(0);
+  const rsvpSessionRef  = useRef<number | null>(null);
+  /* Chapter the current tokens came from, and the one the saved pointer belongs
+     to. A bare word index is ambiguous now that a session crosses chapters. */
+  const rsvpHrefRef     = useRef<string | null>(null);
+  const savedRsvpHrefRef = useRef<string | null>(null);
 
   const sheetAnim = useRef(new Animated.Value(0)).current;
 
@@ -214,6 +264,10 @@ export default function ReaderScreen({
   useEffect(() => {
     loadPrefs().then((p) => setRsvpWpm(p.rsvpWpm ?? 300));
   }, []);
+
+  /* The WebView message handler and the debounced progress writer both run
+     outside render and need the live value, not a captured one. */
+  useEffect(() => { showRsvpRef.current = showRsvp; }, [showRsvp]);
 
   /* ── HTML built once after loading saved progress ── */
 
@@ -224,6 +278,7 @@ export default function ReaderScreen({
       const savedPage = row?.current_page ?? 0;
       const savedPct  = row?.percentage ?? 0;
       rsvpStartIdxRef.current = row?.rsvp_word_index ?? 0;
+      savedRsvpHrefRef.current = row?.rsvp_href ?? null;
       if (savedPage && !cancelled) {
         startPageRef.current  = savedPage;
         latestPageRef.current = savedPage;
@@ -310,7 +365,15 @@ export default function ReaderScreen({
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       latestPageRef.current = page;
       saveTimerRef.current = setTimeout(async () => {
-        await updateProgress(bookId, page, pct, cfi);
+        /* Speed reading drives real navigations (chapter advance, close-time
+           seek). Those must not clear the RSVP resume pointer — D16 clears it
+           when NORMAL reading resumes, and neither of these is that. */
+        const inRsvp = showRsvpRef.current || rsvpSeekingRef.current;
+        await updateProgress(bookId, page, pct, cfi, inRsvp);
+        /* Nor should they rotate the page-reading session: the spine walk fires
+           several of these, which would scatter one RSVP session across rows
+           and inflate pages_read with synthetic jumps. */
+        if (inRsvp) return;
         const pagesRead = Math.max(0, page - startPageRef.current);
         if (sessionIdRef.current && pagesRead > 0) {
           await endSession(sessionIdRef.current, pagesRead);
@@ -330,6 +393,15 @@ export default function ReaderScreen({
       clearTimeout(hideTimerRef.current);
       hideTimerRef.current = null;
     }
+  }, []);
+
+  /* Every gesture ends here, including interrupted ones. Clearing the origin
+     matters: after this change it decides which page turn fires, so a stale
+     one from an aborted touch would score the next gesture. */
+  const resetGesture = useCallback(() => {
+    phaseRef.current = "idle";
+    originRef.current = null;
+    multiTouchRef.current = false;
   }, []);
 
   const showAndReset = useCallback(() => {
@@ -444,25 +516,75 @@ export default function ReaderScreen({
   const openRsvp = useCallback(() => {
     clearHideTimer();
     setShowControls(false);
+    rsvpWordsRef.current = 0;
+    setRsvpIntro(undefined);
+    setRsvpAdvancing(false);
+    setRsvpEndOfBook(false);
+    // Speed reading gets its own session row so its words and WPM are not
+    // averaged into page reading (and vice versa).
+    startSession(bookId, "rsvp").then((id) => { rsvpSessionRef.current = id; });
     // Pull the current chapter's text; handler opens the overlay on reply.
     inject("window.readerApi.getChapterText()");
-  }, [inject, clearHideTimer]);
+  }, [inject, clearHideTimer, bookId]);
+
+  /* Chapter finished: walk the book itself to the next one and pull its text.
+     The reply arrives as a chapterText message flagged `advanced`. The guard
+     matters because the overlay stays interactive while the walk runs: a
+     second finish would start a concurrent walk and skip a chapter. */
+  const advanceRsvp = useCallback(() => {
+    if (advancingRef.current) return;
+    advancingRef.current = true;
+    setRsvpAdvancing(true);   // overlay says "Next chapter…", transport disabled
+    inject("window.readerApi.nextChapter()");
+  }, [inject]);
+
+  /* End of book: go back to the chapter just finished rather than closing. */
+  const backToLastChapter = useCallback(() => {
+    setRsvpEndOfBook(false);
+    rsvpStartIdxRef.current = 0;
+    setRsvpEpoch((n) => n + 1);
+  }, []);
 
   const closeRsvp = useCallback(
     (lastIndex: number) => {
       setShowRsvp(false);
-      // Drop a marker on the page where speed reading stopped.
-      if (rsvpTokens.length > 0) {
+      showRsvpRef.current = false;
+      advancingRef.current = false;
+      setRsvpAdvancing(false);
+      setRsvpEndOfBook(false);
+      setRsvpIntro(undefined);
+      const hadTokens = rsvpTokens.length > 0;
+      if (hadTokens) {
+        /* Cancel any advance still walking the spine FIRST. Without this its
+           display() resolves after our seek and drags the book a chapter
+           forward — the exact bug this whole feature exists to prevent. */
+        rsvpSeekingRef.current = true;
+        inject("window.readerApi.cancelAdvance()");
+        /* Leave the page where speed reading stopped, not where it was when the
+           overlay opened. Tokens carry the block they came from, and goToBlock
+           posts back the landed CFI — which drops the marker in the right spot. */
+        const stop = rsvpTokens[Math.min(lastIndex, rsvpTokens.length - 1)];
         rsvpMarkerRef.current = true;
-        inject("window.readerApi.getCurrentCfi()");
+        inject(`window.readerApi.goToBlock(${stop?.paragraphIndex ?? 0})`);
+      }
+      // Close the RSVP session with everything streamed across all chapters.
+      const words = rsvpWordsRef.current + (hadTokens ? lastIndex + 1 : 0);
+      const sid = rsvpSessionRef.current;
+      if (sid) {
+        endSession(sid, 0, { wordsRead: words, wpmLast: rsvpWpm });
+        rsvpSessionRef.current = null;
       }
       setRsvpTokens([]);
-      // Persist resume pointer (clamped to a real word) and remember the speed.
-      setRsvpWordIndex(bookId, rsvpTokens.length > 0 ? lastIndex : null);
+      rsvpWordsRef.current = 0;
+      // Persist resume pointer (clamped to a real word, scoped to its chapter)
+      // and remember the speed.
+      const stopHref = rsvpHrefRef.current;
+      savedRsvpHrefRef.current = hadTokens ? stopHref : null;
+      setRsvpWordIndex(bookId, hadTokens ? lastIndex : null, stopHref);
       savePrefs({ rsvpWpm });
       showAndReset();
     },
-    [bookId, rsvpTokens.length, rsvpWpm, showAndReset, inject]
+    [bookId, rsvpTokens, rsvpWpm, showAndReset, inject]
   );
 
   /* ── Session summary on close ──────────────────── */
@@ -514,8 +636,13 @@ export default function ReaderScreen({
             showAndReset();
             break;
           case "caret":
-            caretStartIdxRef.current =
-              typeof msg.wordIndex === "number" ? msg.wordIndex : 0;
+            if (typeof msg.wordIndex === "number") {
+              caretRef.current = nextCaretState(caretRef.current, {
+                type: "placed",
+                index: msg.wordIndex,
+                href: msg.href ?? null,
+              });
+            }
             break;
           case "tocLoaded":
             setToc(msg.toc ?? []);
@@ -529,6 +656,12 @@ export default function ReaderScreen({
             setChapterPage(msg.chapterPage ?? 0);
             setChapterPages(msg.chapterPages ?? 0);
             setChapter(msg.chapter ?? "");
+            /* A caret picked in another chapter is meaningless here. Without
+               this, an abandoned pick silently hijacked the next RSVP open. */
+            caretRef.current = nextCaretState(caretRef.current, {
+              type: "chapterChanged",
+              href: msg.href ?? null,
+            });
             if (startPageRef.current === 0 && msg.currentPage > 0) {
               startPageRef.current = msg.currentPage;
             }
@@ -545,7 +678,13 @@ export default function ReaderScreen({
             if (cfi) {
               if (rsvpMarkerRef.current) {
                 rsvpMarkerRef.current = false;
-                await addBookmark(bookId, cfi, "⚡ Speed reading", currentPage || undefined);
+                // The close-time seek has landed: normal reading resumes from
+                // here, so later progress writes may clear the pointer again.
+                rsvpSeekingRef.current = false;
+                // goToBlock has already moved the page; latestPageRef holds the
+                // number that arrived with it (state here is a render behind).
+                const page = latestPageRef.current || currentPage;
+                await addBookmark(bookId, cfi, "⚡ Speed reading", page || undefined);
               } else {
                 await toggleBookmark(bookId, cfi, currentPage || undefined);
               }
@@ -555,23 +694,79 @@ export default function ReaderScreen({
             break;
           }
           case "chapterText": {
+            /* An advance that was cancelled by closing still posts its reply.
+               Applying it would resurrect the overlay's tokens after close. */
+            if (msg.advanced && !showRsvpRef.current) {
+              advancingRef.current = false;
+              break;
+            }
+            if (msg.advanced) {
+              advancingRef.current = false;
+              setRsvpAdvancing(false);
+              // Bank the finished chapter before its tokens are replaced.
+              rsvpWordsRef.current += rsvpTokens.length;
+            }
+            if (msg.endOfBook) {
+              advancingRef.current = false;
+              setRsvpAdvancing(false);
+              /* Finishing a book is the one moment worth marking. It gets the
+                 word slot and two real choices, not an OS dialog thrown over an
+                 immersive reader with a ↻ that would replay the last chapter. */
+              setRsvpEndOfBook(true);
+              break;
+            }
             const paragraphs: string[] = Array.isArray(msg.paragraphs)
               ? msg.paragraphs
               : [];
             const tokens = tokenizeParagraphs(paragraphs);
             setRsvpTokens(tokens);
             setRsvpChapter(msg.chapter || chapter || "");
-            // If a caret start word was chosen, begin there (no resume prompt).
-            const caretStart = caretStartIdxRef.current;
-            if (caretStart > 0 && tokens.length > 0) {
-              caretStartIdxRef.current = 0;
-              rsvpStartIdxRef.current = Math.min(caretStart, tokens.length - 1);
+            rsvpHrefRef.current = msg.href ?? null;
+            if (msg.advanced) {
+              /* Auto-advanced past a chapter end. The overlay remounts at word
+                 0 and holds the label before resuming; a chapter with no
+                 resolvable title skips the hold rather than showing a blank. */
+              rsvpStartIdxRef.current = 0;
+              const label =
+                msg.chapter ||
+                (typeof msg.spineIndex === "number"
+                  ? `Chapter ${msg.spineIndex}`
+                  : "");
+              setRsvpIntro(label || undefined);
+              setRsvpEpoch((n) => n + 1);
+              break;
+            }
+            // A normal open holds nothing: the reader chose to be here.
+            setRsvpIntro(undefined);
+            /* If a caret start word was chosen for THIS chapter, begin there
+               and skip the resume prompt. Word 0 is a legitimate pick, so the
+               "was anything chosen" question is answered by null, not by 0. */
+            const caretStart = startIndexFor(
+              caretRef.current,
+              msg.href ?? null,
+              tokens.length
+            );
+            if (caretStart !== null) {
+              caretRef.current = nextCaretState(caretRef.current, {
+                type: "consumed",
+              });
+              rsvpStartIdxRef.current = caretStart;
               setShowRsvp(true);
               break;
             }
-            // Resume only if the saved index still lands inside this chapter.
+            // A pick that did not apply here is spent, not carried forward.
+            caretRef.current = nextCaretState(caretRef.current, {
+              type: "abandoned",
+            });
+            /* Resume only if the pointer belongs to THIS chapter and still
+               lands inside it. Matching on length alone would happily resume
+               40% into a different chapter that happened to be long enough. */
             const saved = rsvpStartIdxRef.current;
-            const canResume = saved > 0 && saved < tokens.length;
+            const savedHref = savedRsvpHrefRef.current;
+            const canResume =
+              saved > 0 &&
+              saved < tokens.length &&
+              (!savedHref || savedHref === msg.href);
             if (canResume) {
               const pct = Math.round((saved / tokens.length) * 100);
               Alert.alert(
@@ -605,7 +800,7 @@ export default function ReaderScreen({
         /* malformed message */
       }
     },
-    [saveProgressDebounced, showAndReset, bookId, currentPage, inject, chapter]
+    [saveProgressDebounced, showAndReset, bookId, currentPage, inject, chapter, rsvpTokens.length]
   );
 
   /* ── Derived values ─────────────────────────────── */
@@ -667,39 +862,69 @@ export default function ReaderScreen({
           onStartShouldSetResponder={() => true}
           onMoveShouldSetResponder={() => true}
           onResponderGrant={(e) => {
-            const { locationX, locationY } = e.nativeEvent;
-            caretGrantRef.current = { x: locationX, y: locationY };
-            caretActiveRef.current = false;
+            const { locationX, locationY, touches } = e.nativeEvent;
+            phaseRef.current = "tracking";
+            originRef.current = { x: locationX, y: locationY };
+            multiTouchRef.current = (touches?.length ?? 1) > 1;
             if (caretTimerRef.current) clearTimeout(caretTimerRef.current);
             caretTimerRef.current = setTimeout(() => {
-              caretActiveRef.current = true;
+              phaseRef.current = "caret";
               inject(`window.readerApi.caretAt(${locationX}, ${locationY - insets.top})`);
             }, 400);
           }}
           onResponderMove={(e) => {
-            const { locationX, locationY } = e.nativeEvent;
-            if (caretActiveRef.current) {
+            const { locationX, locationY, touches } = e.nativeEvent;
+            // Two fingers means the release position belongs to a different
+            // finger than the origin, so the delta is meaningless. Latch it.
+            if ((touches?.length ?? 1) > 1) multiTouchRef.current = true;
+
+            if (phaseRef.current === "caret") {
+              // Draw only — the word index is resolved once, on release.
               inject(`window.readerApi.caretAt(${locationX}, ${locationY - insets.top})`);
-            } else if (caretGrantRef.current) {
-              const dx = Math.abs(locationX - caretGrantRef.current.x);
-              const dy = Math.abs(locationY - caretGrantRef.current.y);
-              if ((dx > 10 || dy > 10) && caretTimerRef.current) {
-                clearTimeout(caretTimerRef.current); // moved first → not a long-press
-              }
+              return;
+            }
+            const origin = originRef.current;
+            if (!origin) return;
+            const dx = locationX - origin.x;
+            const dy = locationY - origin.y;
+            if (Math.abs(dx) > SWIPE_MIN && Math.abs(dx) > Math.abs(dy)) {
+              phaseRef.current = "swiping";
+            }
+            if ((Math.abs(dx) > 10 || Math.abs(dy) > 10) && caretTimerRef.current) {
+              clearTimeout(caretTimerRef.current); // moved first → not a long-press
+              caretTimerRef.current = null;
             }
           }}
           onResponderRelease={(e) => {
+            const { locationX, locationY } = e.nativeEvent;
             if (caretTimerRef.current) clearTimeout(caretTimerRef.current);
-            if (caretActiveRef.current) { caretActiveRef.current = false; return; }
-            const zone = tapZone(e.nativeEvent.locationX, winWidth);
-            if (zone === "prev") prevPage();
-            else if (zone === "next") nextPage();
-            else if (showControls) setShowControls(false);
-            else showAndReset();
+            caretTimerRef.current = null;
+
+            if (phaseRef.current === "caret") {
+              // Resolve the word index now, once, rather than per move event.
+              inject(`window.readerApi.caretCommit(${locationX}, ${locationY - insets.top})`);
+              resetGesture();
+              return;
+            }
+            const action = classifyGesture(
+              originRef.current,
+              { x: locationX, y: locationY },
+              winWidth,
+              multiTouchRef.current
+            );
+            resetGesture();
+            if (action === "prev") prevPage();
+            else if (action === "next") nextPage();
+            else if (action === "menu") {
+              if (showControls) setShowControls(false);
+              else showAndReset();
+            }
+            // "none" → a multi-touch gesture; deliberately do nothing.
           }}
           onResponderTerminate={() => {
             if (caretTimerRef.current) clearTimeout(caretTimerRef.current);
-            caretActiveRef.current = false;
+            caretTimerRef.current = null;
+            resetGesture();
           }}
         />
       )}
@@ -1155,6 +1380,7 @@ export default function ReaderScreen({
       {/* ── RSVP speed-reading overlay ─────────────── */}
       {showRsvp && (
         <RsvpOverlay
+          key={rsvpEpoch}
           tokens={rsvpTokens}
           initialWpm={rsvpWpm}
           startIndex={rsvpStartIdxRef.current}
@@ -1168,6 +1394,12 @@ export default function ReaderScreen({
             border: t.color.border.default,
           }}
           onWpmChange={setRsvpWpm}
+          onFinish={advanceRsvp}
+          introLabel={rsvpIntro}
+          advancing={rsvpAdvancing}
+          endOfBook={rsvpEndOfBook}
+          bookTitle={title}
+          onBackToChapter={backToLastChapter}
           onClose={closeRsvp}
         />
       )}

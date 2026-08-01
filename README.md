@@ -5,17 +5,27 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)](https://www.typescriptlang.org)
 [![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
-A beautifully designed React Native app for managing your personal book library. Track reading progress, organize books by custom collections, and browse your library with a smooth, intuitive interface across iOS, Android, and Web.
+A React Native app for reading your own books and keeping track of where you are in them. Import EPUBs, read them in a themed reader, speed-read chapters one word at a time, and browse your library by cover across iOS, Android, and Web.
 
 ## Features
 
-- **Smart Library Organization** - Automatically categorize books by reading status (Currently Reading, Recently Read, Series, Custom Folders)
-- **Progress Tracking** - Monitor reading progress for active books with real-time updates
-- **Advanced Search & Filtering** - Quickly find books with powerful multi-criteria filtering
-- **Custom Collections** - Create and manage custom book collections and series groupings
-- **Persistent Storage** - Local SQLite database ensures your library is always available offline
+### Reading
+- **EPUB Reader** - Import EPUBs and read them in-app with tap zones (left third back, right third forward, middle for the menu), swipe navigation, a table of contents, bookmarks, and highlights
+- **Speed Reading (RSVP)** - Stream a chapter one word at a time with the Optimal Recognition Point letter pinned so your eyes stay fixed. Adjustable WPM with presets, ±5-word seek, and a start caret for beginning anywhere in the page
+- **Chapter Auto-Advance** - Finishing a chapter loads the next one and waits at its first word. Closing the speed reader leaves the page where you actually stopped
+- **Reading Themes** - Light, sepia, dark, and night for book pages, or Match app to use the exact app palette. Font, size, line height, and margins are all adjustable and apply live
+- **Progress Tracking** - Per-book CFI position, page number, pages left in the chapter, a page-jump slider, and reading session history
+
+### Library
+- **Real Covers** - Cover art is extracted from the EPUB on import and shown in a bookstore-style grid
+- **Editable Book Details** - Fix titles and authors by hand; missing authors are filled in from the EPUB's own metadata
+- **Smart Organization** - Books grouped by reading status (Currently Reading, Recently Read, Series, Custom Folders)
+- **Search & Filtering** - Multi-criteria filtering across the library
+
+### Platform
+- **Persistent Storage** - Local SQLite database, fully offline
 - **Cross-Platform Support** - Native iOS and Android apps, plus web preview
-- **Modern UI/UX** - Glassmorphic design system with smooth animations and accessibility in mind
+- **Theming** - App-wide theme registry with a Settings picker and a themed navigation bar
 
 ## Technologies
 
@@ -88,7 +98,10 @@ npm start          # Start development server
 npm run android    # Start on Android Emulator
 npm run ios        # Start on iOS Simulator
 npm run web        # Start web version
+npm test           # Run the Jest suite (15 suites, 144 tests)
+npm run test:e2e   # Run the Playwright web smoke suite
 npm run lint       # Run ESLint for code quality checks
+npx tsc --noEmit   # Typecheck without emitting
 npm run reset-project  # Reset to starter template
 ```
 
@@ -100,14 +113,34 @@ bookbrain/
 ├── components/
 │   ├── ui/                 # Reusable UI components (GlassCard, BookCard, etc.)
 │   └── features/           # Feature-specific components and layouts
-├── features/               # Feature modules (library, search, details, etc.)
+├── features/
+│   ├── library/            # Library grid, filtering, book detail sheet
+│   └── reader/             # EPUB reader
+│       ├── ReaderScreen.tsx    # Native shell: controls, TOC, settings, messages
+│       ├── readerHtml.ts       # Generated WebView document + window.readerApi
+│       ├── vendor/             # Inlined epub.js and JSZip (no CDN at runtime)
+│       └── rsvp/               # Speed reading: engine.ts + RsvpOverlay.tsx
 ├── db/                     # SQLite database schema and queries
 ├── store/                  # Zustand stores and reducers
-├── services/               # API and utility services
-├── theme.ts                # Design system tokens and theme configuration
+├── services/               # Import, EPUB metadata/cover extraction, settings
+├── docs/testing/           # TDD evidence reports, one per shipped workstream
+├── theme.ts                # Design system tokens and theme registry
 ├── styles/                 # Global styles and StyleSheet definitions
 └── utils/                  # Helper functions and utilities
 ```
+
+### How the reader is wired
+
+The book renders inside a WebView running epub.js. Because the book lives in a
+cross-origin iframe the native side cannot touch, the two halves talk by
+message passing: `ReaderScreen` injects calls into `window.readerApi`
+(`nextPage`, `goToChapter`, `getChapterText`, `nextChapter`, `goToBlock`, …)
+and the page posts results back (`locationChanged`, `chapterText`, `currentCfi`).
+
+Speed reading tokenizes the current chapter's text blocks, and each token
+records which block it came from. That index is what lets closing the overlay
+put the page back on the paragraph you stopped at, and it is why the paragraph
+list and the seek target are built from the same block filter.
 
 ## Design System
 
